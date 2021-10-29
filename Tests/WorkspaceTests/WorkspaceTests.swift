@@ -1829,7 +1829,7 @@ final class WorkspaceTests: XCTestCase {
 
         try workspace.loadDependencyManifests(roots: ["Root1"]) { manifests, diagnostics in
             // Ensure that the order of the manifests is stable.
-            XCTAssertEqual(manifests.allDependencyManifests().map { $0.value.displayName }, ["Foo", "Baz", "Bam", "Bar"])
+            XCTAssertEqual(manifests.allDependencyManifests().map { $0.value.0.displayName }, ["Foo", "Baz", "Bam", "Bar"])
             XCTAssertNoDiagnostics(diagnostics)
         }
     }

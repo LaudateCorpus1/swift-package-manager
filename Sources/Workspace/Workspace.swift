@@ -1365,13 +1365,13 @@ extension Workspace {
         let root: PackageGraphRoot
 
         /// The dependency manifests in the transitive closure of root manifest.
-        let dependencies: [(manifest: Manifest, dependency: ManagedDependency, productFilter: ProductFilter)]
+        let dependencies: [(manifest: Manifest, dependency: ManagedDependency, productFilter: ProductFilter, fileSystem: FileSystem)]
 
         let workspace: Workspace
 
         fileprivate init(
             root: PackageGraphRoot,
-            dependencies: [(manifest: Manifest, dependency: ManagedDependency, productFilter: ProductFilter)],
+            dependencies: [(manifest: Manifest, dependency: ManagedDependency, productFilter: ProductFilter, fileSystem: FileSystem)],
             workspace: Workspace
         ) {
             self.root = root
@@ -1380,9 +1380,9 @@ extension Workspace {
         }
 
         /// Returns all manifests contained in DependencyManifests.
-        public func allDependencyManifests() -> OrderedDictionary<PackageIdentity, Manifest> {
-            return self.dependencies.reduce(into: OrderedDictionary<PackageIdentity, Manifest>()) { partial, item in
-                partial[item.dependency.packageRef.identity] = item.manifest
+        public func allDependencyManifests() -> OrderedDictionary<PackageIdentity, (Manifest, FileSystem)> {
+            return self.dependencies.reduce(into: OrderedDictionary<PackageIdentity, (Manifest, FileSystem)>()) { partial, item in
+                partial[item.dependency.packageRef.identity] = (item.manifest, item.fileSystem)
             }
         }
 
@@ -1472,7 +1472,7 @@ extension Workspace {
         func dependencyConstraints() throws -> [PackageContainerConstraint] {
             var allConstraints = [PackageContainerConstraint]()
 
-            for (externalManifest, managedDependency, productFilter) in dependencies {
+            for (externalManifest, managedDependency, productFilter, _) in dependencies {
                 // For edited packages, add a constraint with unversioned requirement so the
                 // resolver doesn't try to resolve it.
                 switch managedDependency.state {
@@ -1501,7 +1501,7 @@ extension Workspace {
         public func editedPackagesConstraints() -> [PackageContainerConstraint] {
             var constraints = [PackageContainerConstraint]()
 
-            for (_, managedDependency, productFilter) in dependencies {
+            for (_, managedDependency, productFilter, _) in dependencies {
                 switch managedDependency.state {
                 case .sourceControlCheckout, .registryDownload, .fileSystem: continue
                 case .edited: break
@@ -1674,11 +1674,28 @@ extension Workspace {
             }
         }
 
-        let dependencies = try dependencyManifests.map{ identity, manifest, productFilter -> (Manifest, ManagedDependency, ProductFilter) in
+        let dependencies = try dependencyManifests.map{ identity, manifest, productFilter -> (Manifest, ManagedDependency, ProductFilter, FileSystem) in
             guard let dependency = self.state.dependencies[identity] else {
                 throw InternalError("dependency not found for \(identity) at \(manifest.packageLocation)")
             }
-            return (manifest, dependency, productFilter)
+
+            let packageRef = PackageReference(identity: identity, kind: manifest.packageKind)
+            let container = try temp_await { self.getContainer(for: packageRef, skipUpdate: true, observabilityScope: observabilityScope, on: .sharedConcurrent, completion: $0) }
+
+            let fileSystem: FileSystem?
+            switch dependency.state {
+            case .sourceControlCheckout(let state):
+                switch state {
+                case .branch(_, let revision): fileSystem = try container.getFileSystem(at: revision.identifier)
+                case .revision(let revision): fileSystem = try container.getFileSystem(at: revision.identifier)
+                case .version(let version, _): fileSystem = try container.getFileSystem(at: version)
+                }
+            case .edited(_, _): fileSystem = try container.getUnversionedFileSystem()
+            case .fileSystem(_): fileSystem = try container.getUnversionedFileSystem()
+            case .registryDownload(let version): fileSystem = try container.getFileSystem(at: version)
+            }
+
+            return (manifest, dependency, productFilter, fileSystem ?? self.fileSystem)
         }
 
         return DependencyManifests(root: root, dependencies: dependencies, workspace: self)
@@ -2001,7 +2018,7 @@ extension Workspace {
     private func parseArtifacts(from manifests: DependencyManifests) throws -> (local: [ManagedArtifact], remote: [RemoteArtifact]) {
         let packageAndManifests: [(reference: PackageReference, manifest: Manifest)] =
             manifests.root.packages.values + // Root package and manifests.
-            manifests.dependencies.map({ manifest, managed, _ in (managed.packageRef, manifest) }) // Dependency package and manifests.
+            manifests.dependencies.map({ manifest, managed, _, _ in (managed.packageRef, manifest) }) // Dependency package and manifests.
 
         var localArtifacts: [ManagedArtifact] = []
         var remoteArtifacts: [RemoteArtifact] = []

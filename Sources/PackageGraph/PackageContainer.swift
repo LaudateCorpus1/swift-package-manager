@@ -11,6 +11,7 @@
 import Basics
 import Dispatch
 import PackageModel
+import protocol TSCBasic.FileSystem
 import struct TSCUtility.Version
 
 /// A container of packages.
@@ -91,6 +92,10 @@ public protocol PackageContainer {
     /// after the container is available. The updated identifier is returned in result of the
     /// dependency resolution.
     func loadPackageReference(at boundVersion: BoundVersion) throws -> PackageReference
+
+    func getFileSystem(at version: Version) throws -> FileSystem?
+    func getFileSystem(at revision: String) throws -> FileSystem?
+    func getUnversionedFileSystem() throws -> FileSystem?
 }
 
 extension PackageContainer {
@@ -100,6 +105,18 @@ extension PackageContainer {
 
     public func versionsDescending() throws -> [Version] {
         try self.versionsAscending().reversed()
+    }
+
+    public func getFileSystem(at version: Version) throws -> FileSystem? {
+        return nil
+    }
+
+    public func getFileSystem(at revision: String) throws -> FileSystem? {
+        return nil
+    }
+
+    public func getUnversionedFileSystem() throws -> FileSystem? {
+        return nil
     }
 }
 

@@ -13,6 +13,19 @@ import PackageLoading
 import PackageModel
 import TSCBasic
 
+private struct LoadableNode: Equatable, Hashable {
+    let underlying: GraphLoadingNode
+    let fs: FileSystem
+
+    static func == (lhs: LoadableNode, rhs: LoadableNode) -> Bool {
+        return lhs.underlying == rhs.underlying
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(underlying)
+      }
+}
+
 extension PackageGraph {
 
     /// Load the package graph for the given package path.
@@ -20,7 +33,7 @@ extension PackageGraph {
         root: PackageGraphRoot,
         identityResolver: IdentityResolver,
         additionalFileRules: [FileRuleDescription] = [],
-        externalManifests: OrderedDictionary<PackageIdentity, Manifest>,
+        externalManifests: OrderedDictionary<PackageIdentity, (Manifest, FileSystem)>,
         requiredDependencies: Set<PackageReference> = [],
         unsafeAllowedPackages: Set<PackageReference> = [],
         binaryArtifacts: [BinaryArtifact] = [],
@@ -37,13 +50,13 @@ extension PackageGraph {
         var manifestMap = externalManifests
         // prefer roots
         root.manifests.forEach {
-            manifestMap[$0.key] = $0.value
+            manifestMap[$0.key] = ($0.value, fileSystem)
         }
 
-        let successors: (GraphLoadingNode) -> [GraphLoadingNode] = { node in
-            node.requiredDependencies().compactMap{ dependency in
-                return manifestMap[dependency.identity].map { manifest in
-                    GraphLoadingNode(identity: dependency.identity, manifest: manifest, productFilter: dependency.productFilter)
+        let successors: (LoadableNode) -> [LoadableNode] = { node in
+            node.underlying.requiredDependencies().compactMap{ dependency in
+                return manifestMap[dependency.identity].map { value in
+                    LoadableNode(underlying: GraphLoadingNode(identity: dependency.identity, manifest: value.0, productFilter: dependency.productFilter), fs: value.1)
                 }
             }
         }
@@ -51,42 +64,42 @@ extension PackageGraph {
         // Construct the root manifest and root dependencies set.
         let rootManifestSet = Set(root.manifests.values)
         let rootDependencies = Set(root.dependencies.compactMap{
-            manifestMap[$0.identity]
+            manifestMap[$0.identity]?.0
         })
         let rootManifestNodes = root.packages.map { identity, package in
-            GraphLoadingNode(identity: identity, manifest: package.manifest, productFilter: .everything)
+            LoadableNode(underlying: GraphLoadingNode(identity: identity, manifest: package.manifest, productFilter: .everything), fs: fileSystem)
         }
-        let rootDependencyNodes = root.dependencies.lazy.compactMap { (dependency: PackageDependency) -> GraphLoadingNode? in
+        let rootDependencyNodes = root.dependencies.lazy.compactMap { (dependency: PackageDependency) -> LoadableNode? in
             manifestMap[dependency.identity].map {
-                GraphLoadingNode(identity: dependency.identity, manifest: $0, productFilter: dependency.productFilter)
+                LoadableNode(underlying: GraphLoadingNode(identity: dependency.identity, manifest: $0.0, productFilter: dependency.productFilter), fs: $0.1)
             }
         }
         let inputManifests = rootManifestNodes + rootDependencyNodes
 
         // Collect the manifests for which we are going to build packages.
-        var allNodes: [GraphLoadingNode]
+        var allNodes: [LoadableNode]
 
         // Detect cycles in manifest dependencies.
         if let cycle = findCycle(inputManifests, successors: successors) {
             observabilityScope.emit(PackageGraphError.cycleDetected(cycle))
             // Break the cycle so we can build a partial package graph.
-            allNodes = inputManifests.filter({ $0.manifest != cycle.cycle[0] })
+            allNodes = inputManifests.filter({ $0.underlying.manifest != cycle.cycle[0] })
         } else {
             // Sort all manifests toplogically.
             allNodes = try topologicalSort(inputManifests, successors: successors)
         }
 
-        var flattenedManifests: [PackageIdentity: GraphLoadingNode] = [:]
+        var flattenedManifests: [PackageIdentity: LoadableNode] = [:]
         for node in allNodes {
-            if let existing = flattenedManifests[node.identity] {
-                let merged = GraphLoadingNode(
-                    identity: node.identity,
-                    manifest: node.manifest,
-                    productFilter: existing.productFilter.union(node.productFilter)
+            if let existing = flattenedManifests[node.underlying.identity] {
+                let merged = LoadableNode(underlying: GraphLoadingNode(
+                    identity: node.underlying.identity,
+                    manifest: node.underlying.manifest,
+                    productFilter: existing.underlying.productFilter.union(node.underlying.productFilter)), fs: node.fs
                 )
-                flattenedManifests[node.identity] = merged
+                flattenedManifests[node.underlying.identity] = merged
             } else {
-                flattenedManifests[node.identity] = node
+                flattenedManifests[node.underlying.identity] = node
             }
         }
         // sort by identity
@@ -96,11 +109,11 @@ extension PackageGraph {
         var manifestToPackage: [Manifest: Package] = [:]
         for node in allNodes {
             let nodeObservabilityScope = observabilityScope.makeChildScope(
-                description: "loading package \(node.identity)",
-                metadata: .packageMetadata(identity: node.identity, kind: node.manifest.packageKind)
+                description: "loading package \(node.underlying.identity)",
+                metadata: .packageMetadata(identity: node.underlying.identity, kind: node.underlying.manifest.packageKind)
             )
 
-            let manifest = node.manifest
+            let manifest = node.underlying.manifest
             // Derive the path to the package.
             //
             // FIXME: Lift this out of the manifest.
@@ -108,16 +121,16 @@ extension PackageGraph {
             nodeObservabilityScope.trap {
                 // Create a package from the manifest and sources.
                 let builder = PackageBuilder(
-                    identity: node.identity,
+                    identity: node.underlying.identity,
                     manifest: manifest,
-                    productFilter: node.productFilter,
+                    productFilter: node.underlying.productFilter,
                     path: packagePath,
                     additionalFileRules: additionalFileRules,
                     binaryArtifacts: binaryArtifacts,
                     xcTestMinimumDeploymentTargets: xcTestMinimumDeploymentTargets,
                     shouldCreateMultipleTestProducts: shouldCreateMultipleTestProducts,
                     createREPLProduct: manifest.packageKind.isRoot ? createREPLProduct : false,
-                    fileSystem: fileSystem,
+                    fileSystem: node.fs,
                     observabilityScope: nodeObservabilityScope
                 )
                 let package = try builder.construct()
@@ -134,7 +147,7 @@ extension PackageGraph {
 
         // Resolve dependencies and create resolved packages.
         let resolvedPackages = try createResolvedPackages(
-            nodes: allNodes,
+            nodes: allNodes.map { $0.underlying },
             identityResolver: identityResolver,
             manifestToPackage: manifestToPackage,
             rootManifestSet: rootManifestSet,
@@ -637,8 +650,8 @@ private final class ResolvedPackageBuilder: ResolvedBuilder<ResolvedPackage> {
 ///
 /// This is different from the one in tools support core, in that it handles equality separately from node traversal. Nodes traverse product filters, but only the manifests must be equal for there to be a cycle.
 fileprivate func findCycle(
-    _ nodes: [GraphLoadingNode],
-    successors: (GraphLoadingNode) throws -> [GraphLoadingNode]
+    _ nodes: [LoadableNode],
+    successors: (LoadableNode) throws -> [LoadableNode]
 ) rethrows -> (path: [Manifest], cycle: [Manifest])? {
     // Ordered set to hold the current traversed path.
     var path = OrderedSet<Manifest>()
@@ -646,12 +659,12 @@ fileprivate func findCycle(
     // Function to visit nodes recursively.
     // FIXME: Convert to stack.
     func visit(
-      _ node: GraphLoadingNode,
-      _ successors: (GraphLoadingNode) throws -> [GraphLoadingNode]
+      _ node: LoadableNode,
+      _ successors: (LoadableNode) throws -> [LoadableNode]
     ) rethrows -> (path: [Manifest], cycle: [Manifest])? {
         // If this node is already in the current path then we have found a cycle.
-        if !path.append(node.manifest) {
-            let index = path.firstIndex(of: node.manifest)! // forced unwrap safe
+        if !path.append(node.underlying.manifest) {
+            let index = path.firstIndex(of: node.underlying.manifest)! // forced unwrap safe
             return (Array(path[path.startIndex..<index]), Array(path[index..<path.endIndex]))
         }
 
@@ -662,7 +675,7 @@ fileprivate func findCycle(
         }
         // No cycle found for this node, remove it from the path.
         let item = path.removeLast()
-        assert(item == node.manifest)
+        assert(item == node.underlying.manifest)
         return nil
     }
 
