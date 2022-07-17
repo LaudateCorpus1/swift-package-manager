@@ -1,14 +1,17 @@
-/*
-This source file is part of the Swift.org open source project
-
-Copyright (c) 2020 Apple Inc. and the Swift project authors
-Licensed under Apache License v2.0 with Runtime Library Exception
-
-See http://swift.org/LICENSE.txt for license information
-See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
+import Dispatch
 import class Foundation.JSONEncoder
 import PackageGraph
 import PackageModel
@@ -75,9 +78,9 @@ public final class XcodeBuildSystem: SPMBuildCore.BuildSystem {
         if let xcbuildTool = ProcessEnv.vars["XCBUILD_TOOL"] {
             xcbuildPath = try AbsolutePath(validating: xcbuildTool)
         } else {
-            let xcodeSelectOutput = try Process.popen(args: "xcode-select", "-p").utf8Output().spm_chomp()
+            let xcodeSelectOutput = try TSCBasic.Process.popen(args: "xcode-select", "-p").utf8Output().spm_chomp()
             let xcodeDirectory = try AbsolutePath(validating: xcodeSelectOutput)
-            xcbuildPath = xcodeDirectory.appending(RelativePath("../SharedFrameworks/XCBuild.framework/Versions/A/Support/xcbuild"))
+            xcbuildPath = AbsolutePath("../SharedFrameworks/XCBuild.framework/Versions/A/Support/xcbuild", relativeTo: xcodeDirectory)
         }
 
         guard fileSystem.exists(xcbuildPath) else {
@@ -119,7 +122,7 @@ public final class XcodeBuildSystem: SPMBuildCore.BuildSystem {
         var hasStdout = false
         var stdoutBuffer: [UInt8] = []
         var stderrBuffer: [UInt8] = []
-        let redirection: Process.OutputRedirection = .stream(stdout: { bytes in
+        let redirection: TSCBasic.Process.OutputRedirection = .stream(stdout: { bytes in
             hasStdout = hasStdout || !bytes.isEmpty
             delegate.parse(bytes: bytes)
 
@@ -130,7 +133,7 @@ public final class XcodeBuildSystem: SPMBuildCore.BuildSystem {
             stderrBuffer.append(contentsOf: bytes)
         })
 
-        let process = Process(arguments: arguments, outputRedirection: redirection)
+        let process = TSCBasic.Process(arguments: arguments, outputRedirection: redirection)
         try process.launch()
         let result = try process.waitUntilExit()
 
@@ -171,7 +174,7 @@ public final class XcodeBuildSystem: SPMBuildCore.BuildSystem {
         // An error with determining the override should not be fatal here.
         settings["CC"] = try? buildParameters.toolchain.getClangCompiler().pathString
         // Always specify the path of the effective Swift compiler, which was determined in the same way as for the native build system.
-        settings["SWIFT_EXEC"] = buildParameters.toolchain.swiftCompiler.pathString
+        settings["SWIFT_EXEC"] = buildParameters.toolchain.swiftCompilerPath.pathString
         settings["LIBRARY_SEARCH_PATHS"] = "$(inherited) \(buildParameters.toolchain.toolchainLibDir.pathString)"
         settings["OTHER_CFLAGS"] = (
             ["$(inherited)"]
@@ -213,7 +216,7 @@ public final class XcodeBuildSystem: SPMBuildCore.BuildSystem {
         return file
     }
 
-    public func cancel() {
+    public func cancel(deadline: DispatchTime) throws {
     }
 
     /// Returns a new instance of `XCBuildDelegate` for a build operation.

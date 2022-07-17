@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021-2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -176,7 +178,7 @@ final class RegistryClientTests: XCTestCase {
 
         let handler: HTTPClient.Handler = { request, _, completion in
             var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
-            let toolsVersion = components.queryItems?.first { $0.name == "swift-version" }.flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.currentToolsVersion
+            let toolsVersion = components.queryItems?.first { $0.name == "swift-version" }.flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
             // remove query
             components.query = nil
             let urlWithoutQuery = components.url
@@ -221,9 +223,8 @@ final class RegistryClientTests: XCTestCase {
                 version: version,
                 customToolsVersion: nil
             )
-            let toolsVersionLoader = ToolsVersionLoader()
-            let parsedToolsVersion = try toolsVersionLoader.load(utf8String: manifest)
-            XCTAssertEqual(parsedToolsVersion, .currentToolsVersion)
+            let parsedToolsVersion = try ToolsVersionParser.parse(utf8String: manifest)
+            XCTAssertEqual(parsedToolsVersion, .current)
         }
 
         do {
@@ -232,8 +233,7 @@ final class RegistryClientTests: XCTestCase {
                 version: version,
                 customToolsVersion: .v5_3
             )
-            let toolsVersionLoader = ToolsVersionLoader()
-            let parsedToolsVersion = try toolsVersionLoader.load(utf8String: manifest)
+            let parsedToolsVersion = try ToolsVersionParser.parse(utf8String: manifest)
             XCTAssertEqual(parsedToolsVersion, .v5_3)
         }
 
@@ -243,8 +243,7 @@ final class RegistryClientTests: XCTestCase {
                 version: version,
                 customToolsVersion: .v4
             )
-            let toolsVersionLoader = ToolsVersionLoader()
-            let parsedToolsVersion = try toolsVersionLoader.load(utf8String: manifest)
+            let parsedToolsVersion = try ToolsVersionParser.parse(utf8String: manifest)
             XCTAssertEqual(parsedToolsVersion, .v4)
         }
     }
@@ -373,7 +372,7 @@ final class RegistryClientTests: XCTestCase {
         let registryClient = makeRegistryClient(configuration: configuration,
                                                 httpClient: httpClient,
                                                 fingerprintStorage: fingerprintStorage,
-                                                fingerprintCheckingMode: .strict)
+                                                fingerprintCheckingMode: .strict) // intended for this test; don't change
 
         XCTAssertThrowsError(try registryClient.fetchSourceArchiveChecksum(package: identity, version: version)) { error in
             guard case RegistryError.checksumChanged = error else {
@@ -442,7 +441,7 @@ final class RegistryClientTests: XCTestCase {
         let registryClient = makeRegistryClient(configuration: configuration,
                                                 httpClient: httpClient,
                                                 fingerprintStorage: fingerprintStorage,
-                                                fingerprintCheckingMode: .warn)
+                                                fingerprintCheckingMode: .warn) // intended for this test; don't change
 
         let observability = ObservabilitySystem.makeForTesting()
 
@@ -595,7 +594,7 @@ final class RegistryClientTests: XCTestCase {
         let registryClient = RegistryClient(
             configuration: configuration,
             fingerprintStorage: fingerprintStorage,
-            fingerprintCheckingMode: .strict,
+            fingerprintCheckingMode: .strict, // intended for this test; don't change
             customHTTPClient: httpClient,
             customArchiverProvider: { fileSystem in
                 MockArchiver(handler: { _, from, to, callback in
@@ -678,7 +677,7 @@ final class RegistryClientTests: XCTestCase {
         let registryClient = RegistryClient(
             configuration: configuration,
             fingerprintStorage: fingerprintStorage,
-            fingerprintCheckingMode: .warn,
+            fingerprintCheckingMode: .warn, // intended for this test; don't change
             customHTTPClient: httpClient,
             customArchiverProvider: { fileSystem in
                 MockArchiver(handler: { _, from, to, callback in

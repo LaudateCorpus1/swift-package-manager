@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import XCTest
 
@@ -43,7 +45,7 @@ final class PinsStoreTests: XCTestCase {
             let revision = UUID().uuidString
             let state = PinsStore.PinState.version(v1, revision: revision)
             store.pin(packageRef: fooRef, state: state)
-            try store.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+            try store.saveState(toolsVersion: ToolsVersion.current)
 
             XCTAssert(fs.exists(pinsFile))
 
@@ -66,7 +68,7 @@ final class PinsStoreTests: XCTestCase {
                 state: .version("1.0.2", revision: revision)
             )
             store.pin(packageRef: barRef, state: state)
-            try store.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+            try store.saveState(toolsVersion: ToolsVersion.current)
 
             store = try PinsStore(pinsFile: pinsFile, workingDirectory: .root, fileSystem: fs, mirrors: .init())
             XCTAssert(store.pins.map{$0}.count == 2)
@@ -85,7 +87,7 @@ final class PinsStoreTests: XCTestCase {
                 packageRef: .localSourceControl(identity: identity, path: path),
                 state: .version("1.2.3", revision: revision)
             )
-            try store.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+            try store.saveState(toolsVersion: ToolsVersion.current)
             store = try PinsStore(pinsFile: pinsFile, workingDirectory: .root, fileSystem: fs, mirrors: .init())
 
             let pin = store.pinsMap[identity]!
@@ -105,7 +107,7 @@ final class PinsStoreTests: XCTestCase {
                 packageRef: .localSourceControl(identity: identity, path: path),
                 state: .branch(name: "develop", revision: revision)
             )
-            try store.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+            try store.saveState(toolsVersion: ToolsVersion.current)
             store = try PinsStore(pinsFile: pinsFile, workingDirectory: .root, fileSystem: fs, mirrors: .init())
 
             let pin = store.pinsMap[identity]!
@@ -125,7 +127,7 @@ final class PinsStoreTests: XCTestCase {
                 packageRef: .localSourceControl(identity: identity, path: path),
                 state: .revision(revision)
             )
-            try store.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+            try store.saveState(toolsVersion: ToolsVersion.current)
             store = try PinsStore(pinsFile: pinsFile, workingDirectory: .root, fileSystem: fs, mirrors: .init())
 
             let pin = store.pinsMap[identity]!
@@ -143,7 +145,7 @@ final class PinsStoreTests: XCTestCase {
                 packageRef: .registry(identity: identity),
                 state: .version("1.2.3", revision: .none)
             )
-            try store.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+            try store.saveState(toolsVersion: ToolsVersion.current)
             store = try PinsStore(pinsFile: pinsFile, workingDirectory: .root, fileSystem: fs, mirrors: .init())
 
             let pin = store.pinsMap[identity]!
@@ -263,7 +265,7 @@ final class PinsStoreTests: XCTestCase {
         let pinsFile = AbsolutePath("/pinsfile.txt")
         let store = try PinsStore(pinsFile: pinsFile, workingDirectory: .root, fileSystem: fs, mirrors: .init())
 
-        try store.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+        try store.saveState(toolsVersion: ToolsVersion.current)
         XCTAssertFalse(fs.exists(pinsFile))
 
         let fooPath = AbsolutePath("/foo")
@@ -274,11 +276,11 @@ final class PinsStoreTests: XCTestCase {
 
         XCTAssert(!fs.exists(pinsFile))
 
-        try store.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+        try store.saveState(toolsVersion: ToolsVersion.current)
         XCTAssert(fs.exists(pinsFile))
 
         store.unpinAll()
-        try store.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+        try store.saveState(toolsVersion: ToolsVersion.current)
         XCTAssertFalse(fs.exists(pinsFile))
     }
 
@@ -317,8 +319,12 @@ final class PinsStoreTests: XCTestCase {
         XCTAssertNil(store.pinsMap[barMirroredIdentity])
         XCTAssertEqual(store.pinsMap[bazIdentity]!.packageRef.kind, .remoteSourceControl(bazURL))
 
-        try store.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+        try store.saveState(toolsVersion: ToolsVersion.current)
         XCTAssert(fileSystem.exists(pinsFile))
+
+        let content: String = try fileSystem.readFileContents(pinsFile)
+        XCTAssertMatch(content, .contains(fooURL.absoluteString))
+        XCTAssertNoMatch(content, .contains(fooMirroredURL.absoluteString))
 
         // Load the store again from disk, with no mirrors
         let store2 = try PinsStore(pinsFile: pinsFile, workingDirectory: .root, fileSystem: fileSystem, mirrors: .init())
@@ -332,4 +338,126 @@ final class PinsStoreTests: XCTestCase {
         XCTAssert(store3.pinsMap.count == 3)
         XCTAssertEqual(store3.pinsMap, store.pinsMap)
     }
+
+    func testPinsWithMirrorsDeterminism() throws {
+        let fooIdentity = PackageIdentity.plain("foo")
+        let fooURL1 = URL(string: "https://github.com/corporate/foo")!
+        let fooURL2 = URL(string: "https://github.com/corporate/foo.git")!
+        let fooURL3 = URL(string: "https://github.com/old-corporate/foo")!
+        let fooURL4 = URL(string: "https://github.com/old-corporate/foo.git")!
+        let fooMirroredURL = URL(string: "https://github.corporate.com/team/foo")!
+
+        let mirrors = DependencyMirrors()
+        mirrors.set(mirrorURL: fooMirroredURL.absoluteString, forURL: fooURL1.absoluteString)
+        mirrors.set(mirrorURL: fooMirroredURL.absoluteString, forURL: fooURL2.absoluteString)
+        mirrors.set(mirrorURL: fooMirroredURL.absoluteString, forURL: fooURL3.absoluteString)
+        mirrors.set(mirrorURL: fooMirroredURL.absoluteString, forURL: fooURL4.absoluteString)
+
+        let fileSystem = InMemoryFileSystem()
+        let pinsFile = AbsolutePath("/pins.txt")
+
+        let store1 = try PinsStore(pinsFile: pinsFile, workingDirectory: .root, fileSystem: fileSystem, mirrors: mirrors)
+        store1.pin(
+            packageRef: .remoteSourceControl(identity: fooIdentity, url: fooMirroredURL),
+            state: .version(v1, revision: "revision")
+        )
+
+        XCTAssert(store1.pinsMap.count == 1)
+        XCTAssertEqual(store1.pinsMap[fooIdentity]!.packageRef.kind, .remoteSourceControl(fooMirroredURL))
+
+        try store1.saveState(toolsVersion: ToolsVersion.current)
+        XCTAssert(fileSystem.exists(pinsFile))
+
+        let content: String = try fileSystem.readFileContents(pinsFile)
+        XCTAssertMatch(content, .contains(fooURL1.absoluteString))
+        XCTAssertNoMatch(content, .contains(fooURL2.absoluteString))
+        XCTAssertNoMatch(content, .contains(fooURL3.absoluteString))
+        XCTAssertNoMatch(content, .contains(fooURL4.absoluteString))
+        XCTAssertNoMatch(content, .contains(fooMirroredURL.absoluteString))
+
+        // Load the store again from disk, with no mirrors
+        let store2 = try PinsStore(pinsFile: pinsFile, workingDirectory: .root, fileSystem: fileSystem, mirrors: .init())
+        XCTAssert(store2.pinsMap.count == 1)
+        XCTAssertEqual(store2.pinsMap[fooIdentity]!.packageRef.kind, .remoteSourceControl(fooURL1))
+
+        // Load the store again from disk, with mirrors
+        let store3 = try PinsStore(pinsFile: pinsFile, workingDirectory: .root, fileSystem: fileSystem, mirrors: mirrors)
+        XCTAssert(store3.pinsMap.count == 1)
+        XCTAssertEqual(store3.pinsMap, store1.pinsMap)
+    }
+
+    func testMirrorsDeterminism() throws {
+        let URL1 = URL(string: "https://github.com/corporate/foo")!
+        let URL2 = URL(string: "https://github.com/corporate/foo.git")!
+        let URL3 = URL(string: "https://github.com/old-corporate/foo")!
+        let URL4 = URL(string: "https://github.com/old-corporate/foo.git")!
+        let mirroredURL = URL(string: "https://github.corporate.com/team/foo")!
+
+        do {
+            let mirrors = DependencyMirrors([
+                URL1.absoluteString: mirroredURL.absoluteString,
+                URL2.absoluteString: mirroredURL.absoluteString,
+                URL3.absoluteString: mirroredURL.absoluteString,
+                URL4.absoluteString: mirroredURL.absoluteString
+            ])
+
+            XCTAssertEqual(mirrors.mirrorURL(for: URL2.absoluteString), mirroredURL.absoluteString)
+            // reverse index is sorted by "visited", then alphabetically
+            XCTAssertEqual(mirrors.originalURL(for: mirroredURL.absoluteString), URL2.absoluteString)
+        }
+
+        do {
+            let mirrors = DependencyMirrors([
+                URL1.absoluteString: mirroredURL.absoluteString,
+                URL2.absoluteString: mirroredURL.absoluteString,
+                URL3.absoluteString: mirroredURL.absoluteString,
+                URL4.absoluteString: mirroredURL.absoluteString
+            ])
+
+            XCTAssertEqual(mirrors.mirrorURL(for: URL3.absoluteString), mirroredURL.absoluteString)
+            // reverse index is sorted by "visited", then alphabetically
+            XCTAssertEqual(mirrors.originalURL(for: mirroredURL.absoluteString), URL3.absoluteString)
+        }
+
+        do {
+            let mirrors = DependencyMirrors([
+                URL1.absoluteString: mirroredURL.absoluteString,
+                URL2.absoluteString: mirroredURL.absoluteString,
+                URL3.absoluteString: mirroredURL.absoluteString,
+                URL4.absoluteString: mirroredURL.absoluteString
+            ])
+
+            XCTAssertEqual(mirrors.mirrorURL(for: URL2.absoluteString), mirroredURL.absoluteString)
+            XCTAssertEqual(mirrors.mirrorURL(for: URL3.absoluteString), mirroredURL.absoluteString)
+            // reverse index is sorted by "visited", then alphabetically
+            XCTAssertEqual(mirrors.originalURL(for: mirroredURL.absoluteString), URL2.absoluteString)
+        }
+
+        do {
+            let mirrors = DependencyMirrors([
+                URL1.absoluteString: mirroredURL.absoluteString,
+                URL2.absoluteString: mirroredURL.absoluteString,
+                URL3.absoluteString: mirroredURL.absoluteString,
+                URL4.absoluteString: mirroredURL.absoluteString
+            ])
+
+            XCTAssertEqual(mirrors.mirrorURL(for: URL3.absoluteString), mirroredURL.absoluteString)
+            XCTAssertEqual(mirrors.mirrorURL(for: URL2.absoluteString), mirroredURL.absoluteString)
+            // reverse index is sorted by "visited", then alphabetically
+            XCTAssertEqual(mirrors.originalURL(for: mirroredURL.absoluteString), URL3.absoluteString)
+        }
+
+        do {
+            let mirrors = DependencyMirrors([
+                URL1.absoluteString: mirroredURL.absoluteString,
+                URL2.absoluteString: mirroredURL.absoluteString,
+                URL3.absoluteString: mirroredURL.absoluteString,
+                URL4.absoluteString: mirroredURL.absoluteString
+            ])
+
+            // reverse index is sorted by "visited", then alphabetically
+            XCTAssertEqual(mirrors.originalURL(for: mirroredURL.absoluteString), URL1.absoluteString)
+        }
+    }
+
 }

@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -66,7 +68,7 @@ class RegistryPackageContainerTests: XCTestCase {
                     case "1.0.3":
                         toolsVersion = .v5_4
                     default:
-                        toolsVersion = .currentToolsVersion
+                        toolsVersion = .current
                     }
                     completion(.success(
                         HTTPClientResponse(
@@ -208,25 +210,32 @@ class RegistryPackageContainerTests: XCTestCase {
         let packageVersion = Version("1.0.0")
         let packagePath = AbsolutePath.root
 
+        let v5_3_3 = ToolsVersion(string: "5.3.3")!
+
         func createProvider(_ toolsVersion: ToolsVersion) throws -> PackageContainerProvider {
+            let supportedVersions = Set<ToolsVersion>([ToolsVersion.v5_3, v5_3_3, .v5_4, .v5_5])
             let registryClient = try makeRegistryClient(
                 packageIdentity: packageIdentity,
                 packageVersion: packageVersion,
                 packagePath: packagePath,
                 fileSystem: fs,
                 manifestRequestHandler: { request, _ , completion in
+                    let requestedVersionString = request.url.query?.spm_dropPrefix("swift-version=")
+                    let requestedVersion = (requestedVersionString.flatMap{ ToolsVersion(string: $0) }) ?? .v5_3
+                    guard supportedVersions.contains(requestedVersion) else {
+                        return completion(.failure(StringError("invalid version \(requestedVersion)")))
+                    }
                     completion(.success(
                         HTTPClientResponse(
                             statusCode: 200,
                             headers: [
                                 "Content-Version": "1",
                                 "Content-Type": "text/x-swift",
-                                "Link": """
-                                \(self.manifestLink(packageIdentity, .v5_4)),
-                                \(self.manifestLink(packageIdentity, .v5_5))
-                                """
+                                "Link": (supportedVersions.subtracting([requestedVersion])).map {
+                                    self.manifestLink(packageIdentity, $0)
+                                }.joined(separator: ",\n")
                             ],
-                            body: "// swift-tools-version:\(ToolsVersion.v5_3)".data(using: .utf8)
+                            body: "// swift-tools-version:\(requestedVersion)".data(using: .utf8)
                         )
                     ))
                 }
@@ -241,26 +250,26 @@ class RegistryPackageContainerTests: XCTestCase {
             )
 
             struct MockManifestLoader: ManifestLoaderProtocol {
-                func load(at path: AbsolutePath,
+                func load(manifestPath: AbsolutePath,
+                          manifestToolsVersion: ToolsVersion,
                           packageIdentity: PackageIdentity,
                           packageKind: PackageReference.Kind,
                           packageLocation: String,
-                          version: Version?,
-                          revision: String?,
-                          toolsVersion: ToolsVersion,
+                          packageVersion: (version: Version?, revision: String?)?,
                           identityResolver: IdentityResolver,
                           fileSystem: FileSystem,
                           observabilityScope: ObservabilityScope,
-                          on queue: DispatchQueue,
+                          delegateQueue: DispatchQueue,
+                          callbackQueue: DispatchQueue,
                           completion: @escaping (Result<Manifest, Error>) -> Void) {
                     completion(.success(
                         Manifest(
                             displayName: packageIdentity.description,
-                            path: path,
+                            path: manifestPath,
                             packageKind: packageKind,
                             packageLocation: packageLocation,
                             platforms: [],
-                            toolsVersion: toolsVersion
+                            toolsVersion: manifestToolsVersion
                         )
                     ))
                 }
@@ -276,6 +285,14 @@ class RegistryPackageContainerTests: XCTestCase {
             let container = try provider.getContainer(for: ref, skipUpdate: false) as! RegistryPackageContainer
             let manifest = try container.loadManifest(version: packageVersion)
             XCTAssertEqual(manifest.toolsVersion, .v5_3)
+        }
+
+        do {
+            let provider = try createProvider(v5_3_3) // the version of the alternate
+            let ref = PackageReference.registry(identity: packageIdentity)
+            let container = try provider.getContainer(for: ref, skipUpdate: false) as! RegistryPackageContainer
+            let manifest = try container.loadManifest(version: packageVersion)
+            XCTAssertEqual(manifest.toolsVersion, v5_3_3)
         }
 
         do {
@@ -377,7 +394,7 @@ class RegistryPackageContainerTests: XCTestCase {
                         "Content-Version": "1",
                         "Content-Type": "text/x-swift"
                     ],
-                    body: "// swift-tools-version:\(ToolsVersion.currentToolsVersion)".data(using: .utf8)
+                    body: "// swift-tools-version:\(ToolsVersion.current)".data(using: .utf8)
                 )
             ))
         }
@@ -452,7 +469,8 @@ class RegistryPackageContainerTests: XCTestCase {
         guard let (scope, name) = identity.scopeAndName else {
             preconditionFailure("invalid identity")
         }
-        return "<http://localhost/\(scope)/\(name)/\(version)/\(Manifest.filename)?swift-version=\(version)>; rel=\"alternate\"; filename=\"Package@swift-\(version).swift\"; swift-tools-version=\"\(version)\""
+        let versionString = version.patch == 0 ? "\(version.major).\(version.minor)" : version.description
+        return "<http://localhost/\(scope)/\(name)/\(version)/\(Manifest.filename)?swift-version=\(version)>; rel=\"alternate\"; filename=\"\(Manifest.basename)@swift-\(versionString).swift\"; swift-tools-version=\"\(version)\""
     }
 }
 

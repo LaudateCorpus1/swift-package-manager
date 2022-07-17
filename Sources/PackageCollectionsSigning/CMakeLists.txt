@@ -1,4 +1,4 @@
-# This source file is part of the Swift.org open source project
+# This source file is part of the Swift open source project
 #
 # Copyright (c) 2021 Apple Inc. and the Swift project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
@@ -6,7 +6,7 @@
 # See http://swift.org/LICENSE.txt for license information
 # See http://swift.org/CONTRIBUTORS.txt for Swift project authors
 
-add_library(PackageCollectionsSigning
+add_library(PackageCollectionsSigning STATIC
   Certificate/Certificate.swift
   Certificate/CertificatePolicy.swift
   Key/ASN1/ASN1.swift
@@ -50,10 +50,4 @@ set_target_properties(PackageCollectionsSigning PROPERTIES
 target_link_options(PackageCollectionsSigning PRIVATE
     "$<$<PLATFORM_ID:Darwin>:SHELL:-Xlinker -framework -Xlinker Security>")
 
-if(USE_CMAKE_INSTALL)
-install(TARGETS PackageCollectionsSigning
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin)
-endif()
 set_property(GLOBAL APPEND PROPERTY SwiftPM_EXPORTS PackageCollectionsSigning)

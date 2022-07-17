@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2019 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2019 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -52,22 +54,21 @@ class TargetSourcesBuilderTests: XCTestCase {
             packagePath: .root,
             target: target,
             path: .root,
-            defaultLocalization: nil,
             toolsVersion: .v5,
             fileSystem: fs,
             observabilityScope: observability.topScope
         )
 
-        let contents = builder.computeContents().map{ $0.pathString }.sorted()
+        let contents = builder.computeContents().sorted()
 
         XCTAssertEqual(contents, [
-            "/Bar.swift",
-            "/Foo.swift",
-            "/Hello.something/hello.txt",
-            "/file",
-            "/path/to/somefile.txt",
-            "/some/path.swift",
-            "/some/path/toBeCopied",
+            AbsolutePath("/Bar.swift"),
+            AbsolutePath("/Foo.swift"),
+            AbsolutePath("/Hello.something/hello.txt"),
+            AbsolutePath("/file"),
+            AbsolutePath("/path/to/somefile.txt"),
+            AbsolutePath("/some/path.swift"),
+            AbsolutePath("/some/path/toBeCopied"),
         ])
 
         XCTAssertNoDiagnostics(observability.diagnostics)
@@ -97,17 +98,16 @@ class TargetSourcesBuilderTests: XCTestCase {
             packagePath: .root,
             target: target,
             path: .root,
-            defaultLocalization: nil,
             toolsVersion: .v5_3,
             fileSystem: fs,
             observabilityScope: observability.topScope
         )
 
-        let contents = builder.computeContents().map{ $0.pathString }.sorted()
+        let contents = builder.computeContents().sorted()
 
         XCTAssertEqual(contents, [
-            "/some.thing",
-            "/some/hello.swift",
+            AbsolutePath("/some.thing"),
+            AbsolutePath("/some/hello.swift"),
         ])
 
         XCTAssertNoDiagnostics(observability.diagnostics)
@@ -137,23 +137,24 @@ class TargetSourcesBuilderTests: XCTestCase {
             packagePath: .root,
             target: target,
             path: .root,
-            defaultLocalization: nil,
             toolsVersion: .v5_6,
             fileSystem: fs,
             observabilityScope: observability.topScope
         )
 
-        let contents = builder.computeContents().map{ $0.pathString }.sorted()
+        let contents = builder.computeContents().sorted()
 
         XCTAssertEqual(contents, [
-            "/some.thing/hello.txt",
-            "/some/hello.swift",
+            AbsolutePath("/some.thing/hello.txt"),
+            AbsolutePath("/some/hello.swift"),
         ])
 
         XCTAssertNoDiagnostics(observability.diagnostics)
     }
 
     func testSpecialDirectoryWithExt_5_6() throws {
+        let root = AbsolutePath.root
+
         let target = try TargetDescription(
             name: "Foo",
             path: nil,
@@ -165,8 +166,8 @@ class TargetSourcesBuilderTests: XCTestCase {
 
         let fs = InMemoryFileSystem()
         fs.createEmptyFiles(at: .root, files: [
-            "/some.xcassets/hello.txt",
-            "/some/hello.swift",
+            root.appending(components: "some.xcassets", "hello.txt").pathString,
+            root.appending(components: "some", "hello.swift").pathString
         ])
 
         let observability = ObservabilitySystem.makeForTesting()
@@ -177,17 +178,16 @@ class TargetSourcesBuilderTests: XCTestCase {
             packagePath: .root,
             target: target,
             path: .root,
-            defaultLocalization: nil,
             toolsVersion: .v5_6,
             fileSystem: fs,
             observabilityScope: observability.topScope
         )
 
-        let contents = builder.computeContents().map{ $0.pathString }.sorted()
+        let contents = builder.computeContents().sorted()
 
         XCTAssertEqual(contents, [
-            "/some.xcassets",
-            "/some/hello.swift"
+            root.appending(components: "some.xcassets"),
+            root.appending(components: "some", "hello.swift"),
         ])
 
         XCTAssertNoDiagnostics(observability.diagnostics)
@@ -227,8 +227,8 @@ class TargetSourcesBuilderTests: XCTestCase {
             toolsVersion: .minimumRequired,
             fileTypes: ["something"])
 
-        build(target: target, additionalFileRules: [somethingRule], toolsVersion: .v5, fs: fs) { _, _, _, _, _, _, _, _  in
-            // No diagnostics
+        build(target: target, additionalFileRules: [somethingRule], toolsVersion: .v5, fs: fs) { _, _, _, _, _, _, _, diagnostics in
+            XCTAssertNoDiagnostics(diagnostics)
         }
     }
 
@@ -244,9 +244,9 @@ class TargetSourcesBuilderTests: XCTestCase {
         )
 
         let files = [
-            "/Foo.swift",
-            "/Bar.swift",
-            "/Baz.something"
+            AbsolutePath("/Foo.swift").pathString,
+            AbsolutePath("/Bar.swift").pathString,
+            AbsolutePath("/Baz.something").pathString,
         ]
 
         let fs = InMemoryFileSystem()
@@ -258,7 +258,8 @@ class TargetSourcesBuilderTests: XCTestCase {
             fileTypes: ["something"]
         )
 
-        build(target: target, additionalFileRules: [somethingRule], toolsVersion: .v5_5, fs: fs) { sources, _, _, _, _, _, _, _  in
+        build(target: target, additionalFileRules: [somethingRule], toolsVersion: .v5_5, fs: fs) { sources, _, _, _, _, _, _, diagnostics in
+            XCTAssertNoDiagnostics(diagnostics)
             XCTAssertEqual(
                 sources.paths.map(\.pathString).sorted(),
                 files.sorted()
@@ -279,16 +280,18 @@ class TargetSourcesBuilderTests: XCTestCase {
                 "/Resources/Sub/foo.txt"
             )
 
-            build(target: target, toolsVersion: .v5_3, checkProblemsOnly: false, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-                var diagnosticsFound = [Basics.Diagnostic?]()
-                diagnosticsFound.append(diagnostics.check(diagnostic: "multiple resources named 'foo.txt' in target 'Foo'", severity: .error))
-                diagnosticsFound.append(diagnostics.checkUnordered(diagnostic: "found 'Resources/foo.txt'", severity: .info))
-                diagnosticsFound.append(diagnostics.checkUnordered(diagnostic: "found 'Resources/Sub/foo.txt'", severity: .info))
+            build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
+                testDiagnostics(diagnostics, problemsOnly: false) { result in
+                    var diagnosticsFound = [Basics.Diagnostic?]()
+                    diagnosticsFound.append(result.check(diagnostic: "multiple resources named 'foo.txt' in target 'Foo'", severity: .error))
+                    diagnosticsFound.append(result.checkUnordered(diagnostic: "found '\(RelativePath("Resources").appending(components: "foo.txt"))'", severity: .info))
+                    diagnosticsFound.append(result.checkUnordered(diagnostic: "found '\(RelativePath("Resources").appending(components: "Sub", "foo.txt"))'", severity: .info))
 
-                for diagnostic in diagnosticsFound {
-                    XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-                    XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-                    XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                    for diagnostic in diagnosticsFound {
+                        XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
+                        XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
+                        XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                    }
                 }
             }
         }
@@ -306,16 +309,18 @@ class TargetSourcesBuilderTests: XCTestCase {
                 "/Copied/foo.txt"
             )
 
-            build(target: target, toolsVersion: .v5_3, checkProblemsOnly: false, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-                var diagnosticsFound = [Basics.Diagnostic?]()
-                diagnosticsFound.append(diagnostics.check(diagnostic: "multiple resources named 'foo.txt' in target 'Foo'", severity: .error))
-                diagnosticsFound.append(diagnostics.checkUnordered(diagnostic: "found 'Processed/foo.txt'", severity: .info))
-                diagnosticsFound.append(diagnostics.checkUnordered(diagnostic: "found 'Copied/foo.txt'", severity: .info))
+            build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
+                testDiagnostics(diagnostics, problemsOnly: false) { result in
+                    var diagnosticsFound = [Basics.Diagnostic?]()
+                    diagnosticsFound.append(result.check(diagnostic: "multiple resources named 'foo.txt' in target 'Foo'", severity: .error))
+                    diagnosticsFound.append(result.checkUnordered(diagnostic: "found '\(RelativePath("Processed").appending(components: "foo.txt"))'", severity: .info))
+                    diagnosticsFound.append(result.checkUnordered(diagnostic: "found '\(RelativePath("Copied").appending(components: "foo.txt"))'", severity: .info))
 
-                for diagnostic in diagnosticsFound {
-                    XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-                    XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-                    XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                    for diagnostic in diagnosticsFound {
+                        XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
+                        XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
+                        XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                    }
                 }
             }
         }
@@ -334,7 +339,7 @@ class TargetSourcesBuilderTests: XCTestCase {
             )
 
             build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, _, _, _, diagnostics in
-                // No diagnostics
+                XCTAssertNoDiagnostics(diagnostics)
             }
         }
 
@@ -351,16 +356,18 @@ class TargetSourcesBuilderTests: XCTestCase {
                 "/B/Copy/foo.txt"
             )
 
-            build(target: target, toolsVersion: .v5_3, checkProblemsOnly: false, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-                var diagnosticsFound = [Basics.Diagnostic?]()
-                diagnosticsFound.append(diagnostics.check(diagnostic: "multiple resources named 'Copy' in target 'Foo'", severity: .error))
-                diagnosticsFound.append(diagnostics.checkUnordered(diagnostic: "found 'A/Copy'", severity: .info))
-                diagnosticsFound.append(diagnostics.checkUnordered(diagnostic: "found 'B/Copy'", severity: .info))
+            build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
+                testDiagnostics(diagnostics, problemsOnly: false) { result in
+                    var diagnosticsFound = [Basics.Diagnostic?]()
+                    diagnosticsFound.append(result.check(diagnostic: "multiple resources named 'Copy' in target 'Foo'", severity: .error))
+                    diagnosticsFound.append(result.checkUnordered(diagnostic: "found '\(RelativePath("A").appending(components: "Copy"))'", severity: .info))
+                    diagnosticsFound.append(result.checkUnordered(diagnostic: "found '\(RelativePath("B").appending(components: "Copy"))'", severity: .info))
 
-                for diagnostic in diagnosticsFound {
-                    XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-                    XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-                    XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                    for diagnostic in diagnosticsFound {
+                        XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
+                        XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
+                        XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                    }
                 }
             }
         }
@@ -378,16 +385,18 @@ class TargetSourcesBuilderTests: XCTestCase {
                 "/B/EN.lproj/foo.txt"
             )
 
-            build(target: target, toolsVersion: .v5_3, checkProblemsOnly: false, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-                var diagnosticsFound = [Basics.Diagnostic?]()
-                diagnosticsFound.append(diagnostics.check(diagnostic: "multiple resources named 'en.lproj/foo.txt' in target 'Foo'", severity: .error))
-                diagnosticsFound.append(diagnostics.checkUnordered(diagnostic: "found 'A/en.lproj/foo.txt'", severity: .info))
-                diagnosticsFound.append(diagnostics.checkUnordered(diagnostic: "found 'B/EN.lproj/foo.txt'", severity: .info))
+            build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
+                testDiagnostics(diagnostics, problemsOnly: false) { result in
+                    var diagnosticsFound = [Basics.Diagnostic?]()
+                    diagnosticsFound.append(result.check(diagnostic: "multiple resources named '\(RelativePath("en.lproj").appending(components: "foo.txt"))' in target 'Foo'", severity: .error))
+                    diagnosticsFound.append(result.checkUnordered(diagnostic: "found '\(RelativePath("A").appending(components: "en.lproj", "foo.txt"))'", severity: .info))
+                    diagnosticsFound.append(result.checkUnordered(diagnostic: "found '\(RelativePath("B").appending(components: "EN.lproj", "foo.txt"))'", severity: .info))
 
-                for diagnostic in diagnosticsFound {
-                    XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-                    XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-                    XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                    for diagnostic in diagnosticsFound {
+                        XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
+                        XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
+                        XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                    }
                 }
             }
         }
@@ -406,13 +415,15 @@ class TargetSourcesBuilderTests: XCTestCase {
             )
 
             build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-                let diagnostic = diagnostics.check(
-                    diagnostic: "resource 'B/en.lproj' in target 'Foo' conflicts with other localization directories",
-                    severity: .error
-                )
-                XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-                XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-                XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                testDiagnostics(diagnostics) { result in
+                    let diagnostic = result.check(
+                        diagnostic: "resource '\(RelativePath("B").appending(components: "en.lproj"))' in target 'Foo' conflicts with other localization directories",
+                        severity: .error
+                    )
+                    XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
+                    XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
+                    XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                }
             }
         }
     }
@@ -424,9 +435,9 @@ class TargetSourcesBuilderTests: XCTestCase {
             "/en.lproj/Localizable.strings"
         )
 
-        build(target: target, toolsVersion: .v5_2, fs: fs) { _, resources, _, _, _, _, _, _ in
+        build(target: target, toolsVersion: .v5_2, fs: fs) { _, resources, _, _, _, _, _, diagnostics in
             XCTAssert(resources.isEmpty)
-            // No diagnostics
+            XCTAssertNoDiagnostics(diagnostics)
         }
     }
 
@@ -442,13 +453,15 @@ class TargetSourcesBuilderTests: XCTestCase {
         )
 
         build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-            let diagnostic = diagnostics.check(
-                diagnostic: "localization directory 'Processed/en.lproj' in target 'Foo' contains sub-directories, which is forbidden",
-                severity: .error
-            )
-            XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-            XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-            XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+            testDiagnostics(diagnostics) { result in
+                let diagnostic = result.check(
+                    diagnostic: "localization directory '\(RelativePath("Processed").appending(components: "en.lproj"))' in target 'Foo' contains sub-directories, which is forbidden",
+                    severity: .error
+                )
+                XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
+                XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
+                XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+            }
         }
     }
 
@@ -462,19 +475,23 @@ class TargetSourcesBuilderTests: XCTestCase {
         )
 
         build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-            let diagnostic = diagnostics.check(
-                diagnostic: .contains("""
-                    resource 'Resources/en.lproj/Localizable.strings' in target 'Foo' is in a localization directory \
-                    and has an explicit localization declaration
-                    """),
-                severity: .error
-            )
-            XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-            XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-            XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+            testDiagnostics(diagnostics) { result in
+                let diagnostic = result.check(
+                    diagnostic: .contains("""
+                        resource '\(RelativePath("Resources").appending(components: "en.lproj", "Localizable.strings"))' in target 'Foo' is in a localization directory \
+                        and has an explicit localization declaration
+                        """),
+                    severity: .error
+                )
+                XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
+                XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
+                XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+            }
         }
     }
 
+    // rdar://86297221
+    // There is no need to validate localization exists for default localization
     func testMissingDefaultLocalization() throws {
         let target = try TargetDescription(name: "Foo", resources: [
             .init(rule: .process(localization: .none), path: "Resources"),
@@ -492,14 +509,16 @@ class TargetSourcesBuilderTests: XCTestCase {
             "/Icon.png"
         )
 
-        build(target: target, defaultLocalization: "fr", toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-            let diagnostic = diagnostics.check(
-                diagnostic: .contains("resource 'Icon.png' in target 'Foo' is missing the default localization 'fr'"),
-                severity: .warning
-            )
-            XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-            XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-            XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+        do {
+            build(target: target, defaultLocalization: "fr", toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
+                XCTAssertNoDiagnostics(diagnostics)
+            }
+        }
+
+        do {
+            build(target: target, defaultLocalization: "en", toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
+                XCTAssertNoDiagnostics(diagnostics)
+            }
         }
     }
 
@@ -522,28 +541,30 @@ class TargetSourcesBuilderTests: XCTestCase {
         )
 
         build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-            var diagnosticsFound = [Basics.Diagnostic?]()
-            diagnosticsFound.append(diagnostics.checkUnordered(
-                diagnostic: .contains("resource 'Localizable.strings' in target 'Foo' has both localized and un-localized variants"),
-                severity: .warning
-            ))
-            diagnosticsFound.append(diagnostics.checkUnordered(
-                diagnostic: .contains("resource 'Storyboard.storyboard' in target 'Foo' has both localized and un-localized variants"),
-                severity: .warning
-            ))
-            diagnosticsFound.append(diagnostics.checkUnordered(
-                diagnostic: .contains("resource 'Image.png' in target 'Foo' has both localized and un-localized variants"),
-                severity: .warning
-            ))
-            diagnosticsFound.append(diagnostics.checkUnordered(
-                diagnostic: .contains("resource 'Icon.png' in target 'Foo' has both localized and un-localized variants"),
-                severity: .warning
-            ))
+            testDiagnostics(diagnostics) { result in
+                var diagnosticsFound = [Basics.Diagnostic?]()
+                diagnosticsFound.append(result.checkUnordered(
+                    diagnostic: .contains("resource 'Localizable.strings' in target 'Foo' has both localized and un-localized variants"),
+                    severity: .warning
+                ))
+                diagnosticsFound.append(result.checkUnordered(
+                    diagnostic: .contains("resource 'Storyboard.storyboard' in target 'Foo' has both localized and un-localized variants"),
+                    severity: .warning
+                ))
+                diagnosticsFound.append(result.checkUnordered(
+                    diagnostic: .contains("resource 'Image.png' in target 'Foo' has both localized and un-localized variants"),
+                    severity: .warning
+                ))
+                diagnosticsFound.append(result.checkUnordered(
+                    diagnostic: .contains("resource 'Icon.png' in target 'Foo' has both localized and un-localized variants"),
+                    severity: .warning
+                ))
 
-            for diagnostic in diagnosticsFound {
-                XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-                XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-                XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                for diagnostic in diagnosticsFound {
+                    XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
+                    XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
+                    XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                }
             }
         }
     }
@@ -608,13 +629,15 @@ class TargetSourcesBuilderTests: XCTestCase {
             )
 
             build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-                let diagnostic = diagnostics.check(
-                    diagnostic: .contains("resource 'Resources/Processed/Info.plist' in target 'Foo' is forbidden"),
-                    severity: .error
-                )
-                XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-                XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-                XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                testDiagnostics(diagnostics) { result in
+                    let diagnostic = result.check(
+                        diagnostic: .contains("resource '\(RelativePath("Resources").appending(components: "Processed", "Info.plist"))' in target 'Foo' is forbidden"),
+                        severity: .error
+                    )
+                    XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
+                    XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
+                    XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                }
             }
         }
 
@@ -628,13 +651,15 @@ class TargetSourcesBuilderTests: XCTestCase {
             )
 
             build(target: target, toolsVersion: .v5_3, fs: fs) { _, _, _, _, identity, kind, path, diagnostics in
-                let diagnostic = diagnostics.check(
-                    diagnostic: .contains("resource 'Resources/Copied/Info.plist' in target 'Foo' is forbidden"),
-                    severity: .error
-                )
-                XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
-                XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
-                XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                testDiagnostics(diagnostics) { result in
+                    let diagnostic = result.check(
+                        diagnostic: .contains("resource '\(RelativePath("Resources").appending(components: "Copied", "Info.plist"))' in target 'Foo' is forbidden"),
+                        severity: .error
+                    )
+                    XCTAssertEqual(diagnostic?.metadata?.packageIdentity, identity)
+                    XCTAssertEqual(diagnostic?.metadata?.packageKind, kind)
+                    XCTAssertEqual(diagnostic?.metadata?.targetName, target.name)
+                }
             }
         }
     }
@@ -666,7 +691,6 @@ class TargetSourcesBuilderTests: XCTestCase {
                 packagePath: .init("/test"),
                 target: target,
                 path: .root,
-                defaultLocalization: nil,
                 toolsVersion: .v5,
                 fileSystem: fs,
                 observabilityScope: observability.topScope
@@ -675,8 +699,8 @@ class TargetSourcesBuilderTests: XCTestCase {
 
             testDiagnostics(observability.diagnostics) { result in
                 var diagnosticsFound = [Basics.Diagnostic?]()
-                diagnosticsFound.append(result.checkUnordered(diagnostic: "Invalid Exclude '/fileOutsideRoot.py': File not found.", severity: .warning))
-                diagnosticsFound.append(result.checkUnordered(diagnostic: "Invalid Exclude '/fakeDir': File not found.", severity: .warning))
+                diagnosticsFound.append(result.checkUnordered(diagnostic: "Invalid Exclude '\(AbsolutePath("/fileOutsideRoot.py"))': File not found.", severity: .warning))
+                diagnosticsFound.append(result.checkUnordered(diagnostic: "Invalid Exclude '\(AbsolutePath("/fakeDir"))': File not found.", severity: .warning))
 
                 for diagnostic in diagnosticsFound {
                     XCTAssertEqual(diagnostic?.metadata?.packageIdentity, builder.packageIdentity)
@@ -697,7 +721,6 @@ class TargetSourcesBuilderTests: XCTestCase {
                 packagePath: .init("/test"),
                 target: target,
                 path: .root,
-                defaultLocalization: nil,
                 toolsVersion: .v5,
                 fileSystem: fs,
                 observabilityScope: observability.topScope
@@ -735,7 +758,6 @@ class TargetSourcesBuilderTests: XCTestCase {
                 packagePath: .root,
                 target: target,
                 path: .root,
-                defaultLocalization: nil,
                 toolsVersion: .v5,
                 fileSystem: fs,
                 observabilityScope: observability.topScope
@@ -766,7 +788,6 @@ class TargetSourcesBuilderTests: XCTestCase {
                 packagePath: .root,
                 target: target,
                 path: .root,
-                defaultLocalization: nil,
                 toolsVersion: .v5,
                 fileSystem: fs,
                 observabilityScope: observability.topScope
@@ -805,7 +826,6 @@ class TargetSourcesBuilderTests: XCTestCase {
             packagePath: .root,
             target: target,
             path: .root,
-            defaultLocalization: nil,
             toolsVersion: .v5,
             fileSystem: fs,
             observabilityScope: observability.topScope
@@ -813,9 +833,9 @@ class TargetSourcesBuilderTests: XCTestCase {
 
         testDiagnostics(observability.diagnostics) { result in
             var diagnosticsFound = [Basics.Diagnostic?]()
-            diagnosticsFound.append(result.checkUnordered(diagnostic: "Invalid Source '/InvalidPackage.swift': File not found.", severity: .warning))
-            diagnosticsFound.append(result.checkUnordered(diagnostic: "Invalid Source '/DoesNotExist.swift': File not found.", severity: .warning))
-            diagnosticsFound.append(result.checkUnordered(diagnostic: "Invalid Source '/Tests/InvalidPackageTests/InvalidPackageTests.swift': File not found.", severity: .warning))
+            diagnosticsFound.append(result.checkUnordered(diagnostic: "Invalid Source '\(AbsolutePath("/InvalidPackage.swift"))': File not found.", severity: .warning))
+            diagnosticsFound.append(result.checkUnordered(diagnostic: "Invalid Source '\(AbsolutePath("/DoesNotExist.swift"))': File not found.", severity: .warning))
+            diagnosticsFound.append(result.checkUnordered(diagnostic: "Invalid Source '\(AbsolutePath("/Tests/InvalidPackageTests/InvalidPackageTests.swift"))': File not found.", severity: .warning))
 
             for diagnostic in diagnosticsFound {
                 XCTAssertEqual(diagnostic?.metadata?.packageIdentity, builder.packageIdentity)
@@ -850,7 +870,6 @@ class TargetSourcesBuilderTests: XCTestCase {
             packagePath: .root,
             target: target,
             path: .root,
-            defaultLocalization: nil,
             toolsVersion: .v5_5,
             fileSystem: fs,
             observabilityScope: observability.topScope
@@ -891,7 +910,6 @@ class TargetSourcesBuilderTests: XCTestCase {
                 packagePath: .root,
                 target: target,
                 path: .root,
-                defaultLocalization: nil,
                 toolsVersion: .v5_5,
                 fileSystem: fs,
                 observabilityScope: observability.topScope
@@ -917,7 +935,6 @@ class TargetSourcesBuilderTests: XCTestCase {
                 packagePath: .root,
                 target: target,
                 path: .root,
-                defaultLocalization: nil,
                 toolsVersion: .v5_5,
                 fileSystem: fs,
                 observabilityScope: observability.topScope
@@ -975,11 +992,10 @@ class TargetSourcesBuilderTests: XCTestCase {
         defaultLocalization: String? = nil,
         additionalFileRules: [FileRuleDescription] = [],
         toolsVersion: ToolsVersion,
-        checkProblemsOnly: Bool = true,
         fs: FileSystem,
         file: StaticString = #file,
         line: UInt = #line,
-        checker: (Sources, [Resource], [AbsolutePath], [AbsolutePath], PackageIdentity, PackageReference.Kind, AbsolutePath, DiagnosticsTestResult) throws -> Void
+        checker: (Sources, [Resource], [AbsolutePath], [AbsolutePath], PackageIdentity, PackageReference.Kind, AbsolutePath, [Basics.Diagnostic]) throws -> Void
     ) {
         let observability = ObservabilitySystem.makeForTesting()
         let builder = TargetSourcesBuilder(
@@ -997,13 +1013,35 @@ class TargetSourcesBuilderTests: XCTestCase {
 
         do {
             let (sources, resources, headers, _, others) = try builder.run()
-
-            testDiagnostics(observability.diagnostics, problemsOnly: checkProblemsOnly, file: file, line: line) { diagnostics in
-                try checker(sources, resources, headers, others, builder.packageIdentity, builder.packageKind, builder.packagePath, diagnostics)
-            }
+            try checker(sources, resources, headers, others, builder.packageIdentity, builder.packageKind, builder.packagePath, observability.diagnostics)
         } catch {
             XCTFail(error.localizedDescription, file: file, line: line)
         }
     }
+}
 
+extension TargetSourcesBuilder {
+    public init(
+        packageIdentity: PackageIdentity,
+        packageKind: PackageReference.Kind,
+        packagePath: AbsolutePath,
+        target: TargetDescription,
+        path: AbsolutePath,
+        toolsVersion: ToolsVersion,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) {
+        self.init(
+            packageIdentity: packageIdentity,
+            packageKind: packageKind,
+            packagePath: packagePath,
+            target: target,
+            path: path,
+            defaultLocalization: .none,
+            additionalFileRules: [],
+            toolsVersion: toolsVersion,
+            fileSystem: fileSystem,
+            observabilityScope: observabilityScope
+        )
+    }
 }

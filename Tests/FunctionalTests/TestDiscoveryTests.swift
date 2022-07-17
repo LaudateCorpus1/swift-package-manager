@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import PackageModel
 import SPMTestSupport
@@ -116,6 +118,37 @@ class TestDiscoveryTests: XCTestCase {
             // in "swift test" test output goes to stdout
             XCTAssertMatch(stdout, .contains("Executed 2 tests"))
             XCTAssertNoMatch(stderr, .contains("is deprecated"))
+        }
+    }
+
+    func testSubclassedTestClassTests() throws {
+        #if os(macOS)
+        try XCTSkipIf(true)
+        #endif
+        try fixture(name: "Miscellaneous/TestDiscovery/Subclass") { fixturePath in
+            let (stdout, stderr) = try executeSwiftTest(fixturePath)
+            // in "swift test" build output goes to stderr
+            XCTAssertMatch(stderr, .contains("Build complete!"))
+            // in "swift test" test output goes to stdout
+            XCTAssertMatch(stdout, .contains("Tests3.test11"))
+            XCTAssertMatch(stdout, .contains("->Module1::Tests1::test11"))
+            XCTAssertMatch(stdout, .contains("Tests3.test12"))
+            XCTAssertMatch(stdout, .contains("->Module1::Tests1::test12"))
+            XCTAssertMatch(stdout, .contains("Tests3.test13"))
+            XCTAssertMatch(stdout, .contains("->Module1::Tests1::test13"))
+            XCTAssertMatch(stdout, .contains("Tests3.test21"))
+            XCTAssertMatch(stdout, .contains("->Module1::Tests2::test21"))
+            XCTAssertMatch(stdout, .contains("Tests3.test22"))
+            XCTAssertMatch(stdout, .contains("->Module1::Tests2::test22"))
+            XCTAssertMatch(stdout, .contains("Tests3.test31"))
+            XCTAssertMatch(stdout, .contains("->Module1::Tests3::test31"))
+            XCTAssertMatch(stdout, .contains("Tests3.test32"))
+            XCTAssertMatch(stdout, .contains("->Module1::Tests3::test32"))
+            XCTAssertMatch(stdout, .contains("Tests3.test33"))
+            XCTAssertMatch(stdout, .contains("->Module1::Tests3::test33"))
+
+            XCTAssertMatch(stdout, .contains("->Module2::Tests1::test11"))
+            XCTAssertMatch(stdout, .contains("->Module2::Tests1::test12"))
         }
     }
 }

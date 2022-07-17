@@ -1,4 +1,4 @@
-# This source file is part of the Swift.org open source project
+# This source file is part of the Swift open source project
 #
 # Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
@@ -9,7 +9,6 @@
 add_library(Workspace
   CheckoutState.swift
   DefaultPluginScriptRunner.swift
-  Destination.swift
   Diagnostics.swift
   FileSystemPackageContainer.swift
   InitPackage.swift
@@ -20,11 +19,10 @@ add_library(Workspace
   ResolverPrecomputationProvider.swift
   SourceControlPackageContainer.swift
   ToolsVersionSpecificationRewriter.swift
-  UserToolchain.swift
   Workspace.swift
-  WorkspaceConfiguration.swift
-  WorkspaceState.swift
-  WindowsToolchainInfo.swift)
+  Workspace+BinaryArtifacts.swift
+  Workspace+Configuration.swift
+  Workspace+State.swift)
 target_link_libraries(Workspace PUBLIC
   TSCBasic
   TSCUtility
@@ -36,10 +34,8 @@ target_link_libraries(Workspace PUBLIC
   PackageModel
   SourceControl
   Xcodeproj)
-if(Foundation_FOUND)
-  target_link_libraries(PackageLoading PUBLIC
-    $<$<NOT:$<PLATFORM_ID:Darwin>>:Foundation>)
-endif()
+target_link_libraries(PackageLoading PUBLIC
+  $<$<NOT:$<PLATFORM_ID:Darwin>>:Foundation>)
 # NOTE(compnerd) workaround for CMake not setting up include flags yet
 set_target_properties(Workspace PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES ${CMAKE_Swift_MODULE_DIRECTORY})

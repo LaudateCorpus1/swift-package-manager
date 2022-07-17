@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import PackageGraph
@@ -29,7 +31,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let g = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createFileSystemManifest(
                     name: "Foo",
@@ -96,7 +98,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let g = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -140,7 +142,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -193,7 +195,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -225,7 +227,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let g = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Bar",
@@ -267,7 +269,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -289,7 +291,7 @@ class PackageGraphTests: XCTestCase {
         )
 
         testDiagnostics(observability.diagnostics) { result in
-            result.check(diagnostic: "multiple targets named 'Bar' in: 'bar', 'foo'", severity: .error)
+            result.check(diagnostic: "multiple targets named 'Bar' in: 'bar', 'foo'; consider using the `moduleAliases` parameter in manifest to provide unique names", severity: .error)
         }
     }
 
@@ -303,7 +305,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createFileSystemManifest(
                     name: "Fourth",
@@ -348,7 +350,7 @@ class PackageGraphTests: XCTestCase {
         )
 
         testDiagnostics(observability.diagnostics) { result in
-            result.check(diagnostic: "multiple targets named 'First' in: 'first', 'fourth', 'second', 'third'", severity: .error)
+            result.check(diagnostic: "multiple targets named 'First' in: 'first', 'fourth', 'second', 'third'; consider using the `moduleAliases` parameter in manifest to provide unique names", severity: .error)
         }
     }
 
@@ -362,7 +364,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createFileSystemManifest(
                     name: "Fourth",
@@ -407,8 +409,8 @@ class PackageGraphTests: XCTestCase {
         )
 
         testDiagnostics(observability.diagnostics) { result in
-            result.check(diagnostic: "multiple targets named 'Bar' in: 'fourth', 'third'", severity: .error)
-            result.check(diagnostic: "multiple targets named 'Foo' in: 'first', 'second'", severity: .error)
+            result.check(diagnostic: "multiple targets named 'Bar' in: 'fourth', 'third'; consider using the `moduleAliases` parameter in manifest to provide unique names", severity: .error)
+            result.check(diagnostic: "multiple targets named 'Foo' in: 'first', 'second'; consider using the `moduleAliases` parameter in manifest to provide unique names", severity: .error)
         }
     }
 
@@ -422,7 +424,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createFileSystemManifest(
                     name: "Fourth",
@@ -474,19 +476,21 @@ class PackageGraphTests: XCTestCase {
         )
 
         testDiagnostics(observability.diagnostics) { result in
-            result.check(diagnostic: "multiple targets named 'First' in: 'first', 'fourth'", severity: .error)
+            result.check(diagnostic: "multiple targets named 'First' in: 'first', 'fourth'; consider using the `moduleAliases` parameter in manifest to provide unique names", severity: .error)
         }
     }
 
     func testEmptyDependency() throws {
+        let Bar: AbsolutePath = AbsolutePath("/Bar")
+
         let fs = InMemoryFileSystem(emptyFiles:
             "/Foo/Sources/Foo/foo.swift",
-            "/Bar/Sources/Bar/source.txt"
+            Bar.appending(components: "Sources", "Bar", "source.txt").pathString
         )
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -499,7 +503,7 @@ class PackageGraphTests: XCTestCase {
                     ]),
                 Manifest.createFileSystemManifest(
                     name: "Bar",
-                    path: .init("/Bar"),
+                    path: .init(Bar.pathString),
                     products: [
                         ProductDescription(name: "Bar", type: .library(.automatic), targets: ["Bar"])
                     ],
@@ -512,7 +516,7 @@ class PackageGraphTests: XCTestCase {
 
         testDiagnostics(observability.diagnostics) { result in
             result.check(
-                diagnostic: "Source files for target Bar should be located under /Bar/Sources/Bar",
+                diagnostic: "Source files for target Bar should be located under \(Bar.appending(components: "Sources", "Bar"))",
                 severity: .warning
             )
             result.check(
@@ -529,7 +533,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -557,7 +561,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -588,7 +592,7 @@ class PackageGraphTests: XCTestCase {
         )
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "XYZ",
@@ -612,7 +616,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -637,7 +641,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -666,7 +670,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -698,7 +702,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -775,7 +779,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -814,7 +818,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -874,7 +878,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Bar",
@@ -908,7 +912,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Start",
@@ -948,7 +952,7 @@ class PackageGraphTests: XCTestCase {
         )
 
         testDiagnostics(observability.diagnostics) { result in
-            result.check(diagnostic: "multiple targets named 'Foo' in: 'dep2', 'start'", severity: .error)
+            result.check(diagnostic: "multiple targets named 'Foo' in: 'dep2', 'start'; consider using the `moduleAliases` parameter in manifest to provide unique names", severity: .error)
         }
     }
 
@@ -961,7 +965,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1013,7 +1017,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1048,7 +1052,10 @@ class PackageGraphTests: XCTestCase {
                             ]
                         ),
                         TargetDescription(
-                            name: "Bar3"
+                            name: "Bar3",
+                            settings: [
+                                .init(tool: .swift, kind: .unsafeFlags([])),
+                            ]
                         ),
                         TargetDescription(
                             name: "TransitiveBar",
@@ -1082,7 +1089,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1164,7 +1171,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Root",
@@ -1283,7 +1290,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fileSystem,
+            fileSystem: fileSystem,
             manifests: [
                 Manifest.createRootManifest(
                     name: "A",
@@ -1369,7 +1376,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1406,7 +1413,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1450,7 +1457,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1487,7 +1494,7 @@ class PackageGraphTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         _ = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1554,7 +1561,7 @@ class PackageGraphTests: XCTestCase {
 
         do {
             let observability = ObservabilitySystem.makeForTesting()
-            _ = try loadPackageGraph(fs: fs, manifests: manifests, observabilityScope: observability.topScope)
+            _ = try loadPackageGraph(fileSystem: fs, manifests: manifests, observabilityScope: observability.topScope)
             testDiagnostics(observability.diagnostics) { result in
                 result.check(
                     diagnostic: """
@@ -1576,7 +1583,7 @@ class PackageGraphTests: XCTestCase {
             ]
 
             let observability = ObservabilitySystem.makeForTesting()
-            _ = try loadPackageGraph(fs: fs, manifests: fixedManifests, observabilityScope: observability.topScope)
+            _ = try loadPackageGraph(fileSystem: fs, manifests: fixedManifests, observabilityScope: observability.topScope)
             XCTAssertNoDiagnostics(observability.diagnostics)
         }
     }
@@ -1614,7 +1621,7 @@ class PackageGraphTests: XCTestCase {
 
         do {
             let observability = ObservabilitySystem.makeForTesting()
-            _ = try loadPackageGraph(fs: fs, manifests: manifests, observabilityScope: observability.topScope)
+            _ = try loadPackageGraph(fileSystem: fs, manifests: manifests, observabilityScope: observability.topScope)
             testDiagnostics(observability.diagnostics) { result in
                 result.check(
                     diagnostic: """
@@ -1637,7 +1644,7 @@ class PackageGraphTests: XCTestCase {
             ]
 
             let observability = ObservabilitySystem.makeForTesting()
-            _ = try loadPackageGraph(fs: fs, manifests: fixedManifests, observabilityScope: observability.topScope)
+            _ = try loadPackageGraph(fileSystem: fs, manifests: fixedManifests, observabilityScope: observability.topScope)
             XCTAssertNoDiagnostics(observability.diagnostics)
         }
     }
@@ -1673,7 +1680,7 @@ class PackageGraphTests: XCTestCase {
 
         do {
             let observability = ObservabilitySystem.makeForTesting()
-            _ = try loadPackageGraph(fs: fs, manifests: manifests, observabilityScope: observability.topScope)
+            _ = try loadPackageGraph(fileSystem: fs, manifests: manifests, observabilityScope: observability.topScope)
             testDiagnostics(observability.diagnostics) { result in
                 result.check(
                     diagnostic: """
@@ -1695,7 +1702,7 @@ class PackageGraphTests: XCTestCase {
             ]
 
             let observability = ObservabilitySystem.makeForTesting()
-            _ = try loadPackageGraph(fs: fs, manifests: fixedManifests, observabilityScope: observability.topScope)
+            _ = try loadPackageGraph(fileSystem: fs, manifests: fixedManifests, observabilityScope: observability.topScope)
             XCTAssertNoDiagnostics(observability.diagnostics)
         }
     }
@@ -1731,7 +1738,7 @@ class PackageGraphTests: XCTestCase {
 
         do {
             let observability = ObservabilitySystem.makeForTesting()
-            _ = try loadPackageGraph(fs: fs, manifests: manifests, observabilityScope: observability.topScope)
+            _ = try loadPackageGraph(fileSystem: fs, manifests: manifests, observabilityScope: observability.topScope)
             testDiagnostics(observability.diagnostics) { result in
                 let diagnostic = result.check(
                     diagnostic: """
@@ -1754,7 +1761,7 @@ class PackageGraphTests: XCTestCase {
             ]
 
             let observability = ObservabilitySystem.makeForTesting()
-            _ = try loadPackageGraph(fs: fs, manifests: fixedManifests, observabilityScope: observability.topScope)
+            _ = try loadPackageGraph(fileSystem: fs, manifests: fixedManifests, observabilityScope: observability.topScope)
             XCTAssertNoDiagnostics(observability.diagnostics)
         }
     }
@@ -1791,7 +1798,7 @@ class PackageGraphTests: XCTestCase {
         ]
 
         let observability = ObservabilitySystem.makeForTesting()
-        _ = try loadPackageGraph(fs: fs, manifests: manifests, observabilityScope: observability.topScope)
+        _ = try loadPackageGraph(fileSystem: fs, manifests: manifests, observabilityScope: observability.topScope)
         XCTAssertNoDiagnostics(observability.diagnostics)
     }
 
@@ -1828,7 +1835,7 @@ class PackageGraphTests: XCTestCase {
 
         do {
             let observability = ObservabilitySystem.makeForTesting()
-            _ = try loadPackageGraph(fs: fs, manifests: manifests, observabilityScope: observability.topScope)
+            _ = try loadPackageGraph(fileSystem: fs, manifests: manifests, observabilityScope: observability.topScope)
             testDiagnostics(observability.diagnostics) { result in
                 let diagnostic = result.check(
                     diagnostic: """
@@ -1851,7 +1858,7 @@ class PackageGraphTests: XCTestCase {
             ]
 
             let observability = ObservabilitySystem.makeForTesting()
-            _ = try loadPackageGraph(fs: fs, manifests: fixedManifests, observabilityScope: observability.topScope)
+            _ = try loadPackageGraph(fileSystem: fs, manifests: fixedManifests, observabilityScope: observability.topScope)
             XCTAssertNoDiagnostics(observability.diagnostics)
         }
     }
@@ -1891,6 +1898,304 @@ class PackageGraphTests: XCTestCase {
         // Unrelated should not have been asked for Product, because it should know Product comes from Identity.
         XCTAssertFalse(requestedProducts.contains("Product"), "Product requests are leaking.")
         #endif
+    }
+
+    func testPlatforms() throws {
+        let fs = InMemoryFileSystem(emptyFiles:
+            "/Sources/foo/module.modulemap",
+            "/Sources/bar/bar.swift",
+            "/Sources/cbar/bar.c",
+            "/Sources/cbar/include/bar.h",
+            "/Tests/test/test.swift"
+        )
+
+        let defaultDerivedPlatforms = [
+            "linux": "0.0",
+            "macos": "10.13",
+            "maccatalyst": "13.0",
+            "ios": "11.0",
+            "tvos": "11.0",
+            "driverkit": "19.0",
+            "watchos": "4.0",
+            "android": "0.0",
+            "windows": "0.0",
+            "wasi": "0.0",
+            "openbsd": "0.0"
+        ]
+
+        do {
+            // One platform with an override.
+            let manifest = Manifest.createRootManifest(
+                name: "pkg",
+                platforms: [
+                    PlatformDescription(name: "macos", version: "10.14", options: ["option1"]),
+                ],
+                products: [
+                    try ProductDescription(name: "foo", type: .library(.automatic), targets: ["foo"]),
+                    try ProductDescription(name: "cbar", type: .library(.automatic), targets: ["cbar"]),
+                    try ProductDescription(name: "bar", type: .library(.automatic), targets: ["bar"]),
+                    try ProductDescription(name: "multi-target", type: .library(.automatic), targets: ["bar", "cbar", "bar", "test"]),
+                ],
+                targets: [
+                    try TargetDescription(name: "foo", type: .system),
+                    try TargetDescription(name: "cbar"),
+                    try TargetDescription(name: "bar", dependencies: ["foo"]),
+                    try TargetDescription(name: "test", type: .test)
+                ]
+            )
+
+            let customXCTestMinimumDeploymentTargets = [
+                PackageModel.Platform.macOS: PlatformVersion("10.15"),
+                PackageModel.Platform.iOS: PlatformVersion("11.0"),
+                PackageModel.Platform.tvOS: PlatformVersion("11.0"),
+                PackageModel.Platform.watchOS: PlatformVersion("4.0"),
+            ]
+
+            let observability = ObservabilitySystem.makeForTesting()
+            let graph = try loadPackageGraph(
+                fileSystem: fs,
+                manifests: [manifest],
+                customXCTestMinimumDeploymentTargets: customXCTestMinimumDeploymentTargets,
+                observabilityScope: observability.topScope
+            )
+            XCTAssertNoDiagnostics(observability.diagnostics)
+
+            PackageGraphTester(graph) { result in
+                let expectedDeclaredPlatforms = [
+                    "macos": "10.14"
+                ]
+
+                // default platforms will be auto-added during package build
+                let expectedDerivedPlatforms = defaultDerivedPlatforms.merging(expectedDeclaredPlatforms, uniquingKeysWith: { lhs, rhs in rhs })
+
+                result.checkTarget("foo") { target in
+                    target.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    target.checkDerivedPlatforms(expectedDerivedPlatforms)
+                    target.checkDerivedPlatformOptions(.macOS, options: ["option1"])
+                    target.checkDerivedPlatformOptions(.iOS, options: [])
+                }
+                result.checkTarget("bar") { target in
+                    target.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    target.checkDerivedPlatforms(expectedDerivedPlatforms)
+                    target.checkDerivedPlatformOptions(.macOS, options: ["option1"])
+                    target.checkDerivedPlatformOptions(.iOS, options: [])
+
+                }
+                result.checkTarget("cbar") { target in
+                    target.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    target.checkDerivedPlatforms(expectedDerivedPlatforms)
+                    target.checkDerivedPlatformOptions(.macOS, options: ["option1"])
+                    target.checkDerivedPlatformOptions(.iOS, options: [])
+                }
+                result.checkTarget("test") { target in
+                    var expected = expectedDerivedPlatforms
+                    [PackageModel.Platform.macOS, .iOS, .tvOS, .watchOS].forEach {
+                        expected[$0.name] = customXCTestMinimumDeploymentTargets[$0]?.versionString
+                    }
+                    target.checkDerivedPlatforms(expected)
+                    target.checkDerivedPlatformOptions(.macOS, options: ["option1"])
+                    target.checkDerivedPlatformOptions(.iOS, options: [])
+                }
+                result.checkProduct("foo") { product in
+                    product.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    product.checkDerivedPlatforms(expectedDerivedPlatforms)
+                    product.checkDerivedPlatformOptions(.macOS, options: ["option1"])
+                    product.checkDerivedPlatformOptions(.iOS, options: [])
+                }
+                result.checkProduct("bar") { product in
+                    product.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    product.checkDerivedPlatforms(expectedDerivedPlatforms)
+                    product.checkDerivedPlatformOptions(.macOS, options: ["option1"])
+                    product.checkDerivedPlatformOptions(.iOS, options: [])
+
+                }
+                result.checkProduct("cbar") { product in
+                    product.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    product.checkDerivedPlatforms(expectedDerivedPlatforms)
+                    product.checkDerivedPlatformOptions(.macOS, options: ["option1"])
+                    product.checkDerivedPlatformOptions(.iOS, options: [])
+                }
+                result.checkProduct("multi-target") { product in
+                    var expected = expectedDerivedPlatforms
+                    [PackageModel.Platform.macOS, .iOS, .tvOS, .watchOS].forEach {
+                        expected[$0.name] = customXCTestMinimumDeploymentTargets[$0]?.versionString
+                    }
+                    product.checkDerivedPlatforms(expected)
+                    product.checkDerivedPlatformOptions(.macOS, options: ["option1"])
+                    product.checkDerivedPlatformOptions(.iOS, options: [])
+                }
+            }
+        }
+
+        do {
+            // Two platforms with overrides.
+            let manifest = Manifest.createRootManifest(
+                name: "pkg",
+                platforms: [
+                    PlatformDescription(name: "macos", version: "10.14"),
+                    PlatformDescription(name: "tvos", version: "12.0"),
+                ],
+                products: [
+                    try ProductDescription(name: "foo", type: .library(.automatic), targets: ["foo"]),
+                    try ProductDescription(name: "cbar", type: .library(.automatic), targets: ["cbar"]),
+                    try ProductDescription(name: "bar", type: .library(.automatic), targets: ["bar"]),
+                ],
+                targets: [
+                    try TargetDescription(name: "foo", type: .system),
+                    try TargetDescription(name: "cbar"),
+                    try TargetDescription(name: "bar", dependencies: ["foo"]),
+                ]
+            )
+
+            let observability = ObservabilitySystem.makeForTesting()
+            let graph = try loadPackageGraph(
+                fileSystem: fs,
+                manifests: [manifest],
+                observabilityScope: observability.topScope
+            )
+            XCTAssertNoDiagnostics(observability.diagnostics)
+
+            PackageGraphTester(graph) { result in
+                let expectedDeclaredPlatforms = [
+                    "macos": "10.14",
+                    "tvos": "12.0",
+                ]
+
+                // default platforms will be auto-added during package build
+                let expectedDerivedPlatforms = defaultDerivedPlatforms.merging(expectedDeclaredPlatforms, uniquingKeysWith: { lhs, rhs in rhs })
+
+                result.checkTarget("foo") { target in
+                    target.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    target.checkDerivedPlatforms(expectedDerivedPlatforms)
+                }
+                result.checkTarget("bar") { target in
+                    target.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    target.checkDerivedPlatforms(expectedDerivedPlatforms)
+                }
+                result.checkTarget("cbar") { target in
+                    target.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    target.checkDerivedPlatforms(expectedDerivedPlatforms)
+                }
+                result.checkProduct("foo") { product in
+                    product.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    product.checkDerivedPlatforms(expectedDerivedPlatforms)
+                }
+                result.checkProduct("bar") { product in
+                    product.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    product.checkDerivedPlatforms(expectedDerivedPlatforms)
+                }
+                result.checkProduct("cbar") { product in
+                    product.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    product.checkDerivedPlatforms(expectedDerivedPlatforms)
+                }
+            }
+        }
+    }
+
+    func testCustomPlatforms() throws {
+        let fs = InMemoryFileSystem(emptyFiles:
+            "/Sources/foo/module.modulemap"
+        )
+
+        let defaultDerivedPlatforms = [
+            "linux": "0.0",
+            "macos": "10.13",
+            "maccatalyst": "13.0",
+            "ios": "11.0",
+            "tvos": "11.0",
+            "driverkit": "19.0",
+            "watchos": "4.0",
+            "android": "0.0",
+            "windows": "0.0",
+            "wasi": "0.0",
+            "openbsd": "0.0"
+        ]
+
+        do {
+            // One custom platform.
+            let manifest = Manifest.createRootManifest(
+                name: "pkg",
+                platforms: [
+                    PlatformDescription(name: "customos", version: "1.0"),
+                ],
+                products: [
+                    try ProductDescription(name: "foo", type: .library(.automatic), targets: ["foo"]),
+                ],
+                targets: [
+                    try TargetDescription(name: "foo", type: .system),
+                ]
+            )
+
+            let observability = ObservabilitySystem.makeForTesting()
+            let graph = try loadPackageGraph(
+                fileSystem: fs,
+                manifests: [manifest],
+                observabilityScope: observability.topScope
+            )
+            XCTAssertNoDiagnostics(observability.diagnostics)
+
+            PackageGraphTester(graph) { result in
+                let expectedDeclaredPlatforms = [
+                    "customos": "1.0"
+                ]
+
+                // default platforms will be auto-added during package build
+                let expectedDerivedPlatforms = defaultDerivedPlatforms.merging(expectedDeclaredPlatforms, uniquingKeysWith: { lhs, rhs in rhs })
+
+                result.checkTarget("foo") { target in
+                    target.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    target.checkDerivedPlatforms(expectedDerivedPlatforms)
+                }
+                result.checkProduct("foo") { product in
+                    product.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    product.checkDerivedPlatforms(expectedDerivedPlatforms)
+                }
+            }
+        }
+
+        do {
+            // Two platforms with overrides.
+            let manifest = Manifest.createRootManifest(
+                name: "pkg",
+                platforms: [
+                    PlatformDescription(name: "customos", version: "1.0"),
+                    PlatformDescription(name: "anothercustomos", version: "2.3"),
+                ],
+                products: [
+                    try ProductDescription(name: "foo", type: .library(.automatic), targets: ["foo"]),
+                ],
+                targets: [
+                    try TargetDescription(name: "foo", type: .system),
+                ]
+            )
+
+            let observability = ObservabilitySystem.makeForTesting()
+            let graph = try loadPackageGraph(
+                fileSystem: fs,
+                manifests: [manifest],
+                observabilityScope: observability.topScope
+            )
+            XCTAssertNoDiagnostics(observability.diagnostics)
+
+            PackageGraphTester(graph) { result in
+                let expectedDeclaredPlatforms = [
+                    "customos": "1.0",
+                    "anothercustomos": "2.3"
+                ]
+
+                // default platforms will be auto-added during package build
+                let expectedDerivedPlatforms = defaultDerivedPlatforms.merging(expectedDeclaredPlatforms, uniquingKeysWith: { lhs, rhs in rhs })
+
+                result.checkTarget("foo") { target in
+                    target.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    target.checkDerivedPlatforms(expectedDerivedPlatforms)
+                }
+                result.checkProduct("foo") { product in
+                    product.checkDeclaredPlatforms(expectedDeclaredPlatforms)
+                    product.checkDerivedPlatforms(expectedDerivedPlatforms)
+                }
+            }
+        }
     }
 }
 

@@ -1,18 +1,20 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
 import PackageGraph
-import PackageModel
-@testable import PackageLoading
+@testable import PackageModel
+import PackageLoading
 import SPMBuildCore
 import SPMTestSupport
 import TSCBasic
@@ -38,7 +40,7 @@ class PIFBuilderTests: XCTestCase {
 
             let observability = ObservabilitySystem.makeForTesting()
             let graph = try loadPackageGraph(
-                fs: fs,
+                fileSystem: fs,
                 manifests: [
                     Manifest.createLocalSourceControlManifest(
                         name: "B",
@@ -109,7 +111,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createManifest(
                     name: "Foo",
@@ -184,10 +186,10 @@ class PIFBuilderTests: XCTestCase {
                         XCTAssertEqual(settings[.ENTITLEMENTS_REQUIRED], "NO")
                         XCTAssertEqual(settings[.GCC_OPTIMIZATION_LEVEL], "0")
                         XCTAssertEqual(settings[.GCC_PREPROCESSOR_DEFINITIONS], ["$(inherited)", "SWIFT_PACKAGE", "DEBUG=1"])
-                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET], "9.0")
+                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET], "11.0")
                         XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst], "13.0")
                         XCTAssertEqual(settings[.KEEP_PRIVATE_EXTERNS], "NO")
-                        XCTAssertEqual(settings[.MACOSX_DEPLOYMENT_TARGET], "10.10")
+                        XCTAssertEqual(settings[.MACOSX_DEPLOYMENT_TARGET], "10.13")
                         XCTAssertEqual(settings[.ONLY_ACTIVE_ARCH], "YES")
                         XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
                         XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
@@ -199,9 +201,9 @@ class PIFBuilderTests: XCTestCase {
                         XCTAssertEqual(settings[.SWIFT_INSTALL_OBJC_HEADER], "NO")
                         XCTAssertEqual(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME], "")
                         XCTAssertEqual(settings[.SWIFT_OPTIMIZATION_LEVEL], "-Onone")
-                        XCTAssertEqual(settings[.TVOS_DEPLOYMENT_TARGET], "9.0")
+                        XCTAssertEqual(settings[.TVOS_DEPLOYMENT_TARGET], "11.0")
                         XCTAssertEqual(settings[.USE_HEADERMAP], "NO")
-                        XCTAssertEqual(settings[.WATCHOS_DEPLOYMENT_TARGET], "2.0")
+                        XCTAssertEqual(settings[.WATCHOS_DEPLOYMENT_TARGET], "4.0")
 
                         let frameworksSearchPaths = ["$(inherited)", "$(PLATFORM_DIR)/Developer/Library/Frameworks"]
                         for platform in [PIF.BuildSettings.Platform.macOS, .iOS, .tvOS] {
@@ -230,10 +232,10 @@ class PIFBuilderTests: XCTestCase {
                         XCTAssertEqual(settings[.ENTITLEMENTS_REQUIRED], "NO")
                         XCTAssertEqual(settings[.GCC_OPTIMIZATION_LEVEL], "s")
                         XCTAssertEqual(settings[.GCC_PREPROCESSOR_DEFINITIONS], ["$(inherited)", "SWIFT_PACKAGE"])
-                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET], "9.0")
+                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET], "11.0")
                         XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst], "13.0")
                         XCTAssertEqual(settings[.KEEP_PRIVATE_EXTERNS], "NO")
-                        XCTAssertEqual(settings[.MACOSX_DEPLOYMENT_TARGET], "10.10")
+                        XCTAssertEqual(settings[.MACOSX_DEPLOYMENT_TARGET], "10.13")
                         XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
                         XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
                         XCTAssertEqual(settings[.SDK_VARIANT], "auto")
@@ -244,9 +246,9 @@ class PIFBuilderTests: XCTestCase {
                         XCTAssertEqual(settings[.SWIFT_INSTALL_OBJC_HEADER], "NO")
                         XCTAssertEqual(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME], "")
                         XCTAssertEqual(settings[.SWIFT_OPTIMIZATION_LEVEL], "-Owholemodule")
-                        XCTAssertEqual(settings[.TVOS_DEPLOYMENT_TARGET], "9.0")
+                        XCTAssertEqual(settings[.TVOS_DEPLOYMENT_TARGET], "11.0")
                         XCTAssertEqual(settings[.USE_HEADERMAP], "NO")
-                        XCTAssertEqual(settings[.WATCHOS_DEPLOYMENT_TARGET], "2.0")
+                        XCTAssertEqual(settings[.WATCHOS_DEPLOYMENT_TARGET], "4.0")
 
                         let frameworksSearchPaths = ["$(inherited)", "$(PLATFORM_DIR)/Developer/Library/Frameworks"]
                         for platform in [PIF.BuildSettings.Platform.macOS, .iOS, .tvOS] {
@@ -392,7 +394,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -726,7 +728,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -974,7 +976,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1176,7 +1178,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1460,6 +1462,233 @@ class PIFBuilderTests: XCTestCase {
         }
     }
 
+    func testPIFGenWithModuleAliases() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+        let fs = InMemoryFileSystem(emptyFiles:
+                                        "/App/Sources/App/main.swift",
+                                        "/App/Sources/Logging/lib.swift",
+                                    "/App/Sources/Utils/lib.swift",
+                                    "/Bar/Sources/Lib/lib.swift",
+                                    "/Bar/Sources/Logging/lib.swift"
+        )
+
+        let observability = ObservabilitySystem.makeForTesting()
+        let graph = try loadPackageGraph(
+            fileSystem: fs,
+            manifests: [
+                Manifest.createRootManifest(
+                    name: "App",
+                    path: .init("/App"),
+                    dependencies: [
+                        .localSourceControl(path: .init("/Bar"), requirement: .branch("main")),
+                    ],
+                    targets: [
+                        .init(name: "App", dependencies: ["Logging", "Utils"], type: .executable),
+                        .init(name: "Logging", dependencies: []),
+                        .init(name: "Utils", dependencies: [
+                            .product(name: "BarLib", package: "Bar", moduleAliases: ["Logging": "BarLogging"]),
+                        ]),
+                    ]),
+                Manifest.createLocalSourceControlManifest(
+                    name: "Bar",
+                    path: .init("/Bar"),
+                    products: [
+                        .init(name: "BarLib", type: .library(.dynamic), targets: ["Lib"]),
+                    ],
+                    targets: [
+                        .init(name: "Lib", dependencies: ["Logging"]),
+                        .init(name: "Logging", dependencies: []),
+                    ]),
+            ],
+            observabilityScope: observability.topScope
+        )
+
+        var pif: PIF.TopLevelObject!
+        try! withCustomEnv(["PKG_CONFIG_PATH": inputsDir.pathString]) {
+            let builder = PIFBuilder(
+                graph: graph,
+                parameters: .mock(),
+                fileSystem: localFileSystem,
+                observabilityScope: observability.topScope
+            )
+            pif = try builder.construct()
+        }
+
+        XCTAssertNoDiagnostics(observability.diagnostics)
+
+        PIFTester(pif) { workspace in
+            workspace.checkProject("PACKAGE:/App") { project in
+                project.checkTarget("PACKAGE-PRODUCT:App") { target in
+                    XCTAssertEqual(target.name, "App_1DA2DD44_PackageProduct")
+                    XCTAssertEqual(target.productType, .executable)
+                    XCTAssertEqual(target.productName, "App")
+                    XCTAssertEqual(target.dependencies, [
+                        "PACKAGE-TARGET:Utils",
+                        "PACKAGE-TARGET:Logging",
+                        "PACKAGE-PRODUCT:BarLib",
+                    ])
+                    XCTAssertEqual(target.frameworks, [
+                        "PACKAGE-TARGET:Utils",
+                        "PACKAGE-TARGET:Logging",
+                        "PACKAGE-PRODUCT:BarLib",
+                    ])
+
+                    target.checkBuildConfiguration("Debug") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:App::BUILDCONFIG_Debug")
+                        XCTAssertEqual(configuration.name, "Debug")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                        }
+                    }
+
+                    target.checkBuildConfiguration("Release") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:App::BUILDCONFIG_Release")
+                        XCTAssertEqual(configuration.name, "Release")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                        }
+                    }
+                }
+
+                project.checkTarget("PACKAGE-TARGET:Utils") { target in
+                    XCTAssertEqual(target.name, "Utils")
+                    XCTAssertEqual(target.productType, .objectFile)
+                    XCTAssertEqual(target.productName, "Utils.o")
+                    XCTAssertEqual(target.dependencies, [
+                        "PACKAGE-PRODUCT:BarLib",
+                    ])
+
+                    target.checkBuildConfiguration("Debug") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Utils::BUILDCONFIG_Debug")
+                        XCTAssertEqual(configuration.name, "Debug")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                        }
+                    }
+
+                    target.checkBuildConfiguration("Release") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Utils::BUILDCONFIG_Release")
+                        XCTAssertEqual(configuration.name, "Release")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                        }
+                    }
+
+                }
+                project.checkTarget("PACKAGE-TARGET:Logging") { target in
+                    XCTAssertEqual(target.name, "Logging")
+                    XCTAssertEqual(target.productType, .objectFile)
+                    XCTAssertEqual(target.productName, "Logging.o")
+                    XCTAssertEqual(target.dependencies, [])
+
+                    target.checkBuildConfiguration("Debug") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Logging::BUILDCONFIG_Debug")
+                        XCTAssertEqual(configuration.name, "Debug")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                        }
+                    }
+
+                    target.checkBuildConfiguration("Release") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Logging::BUILDCONFIG_Release")
+                        XCTAssertEqual(configuration.name, "Release")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                        }
+                    }
+                }
+            }
+
+            workspace.checkProject("PACKAGE:/Bar") { project in
+                project.checkTarget("PACKAGE-PRODUCT:BarLib") { target in
+                    XCTAssertEqual(target.name, "BarLib_175D063FAE17B2_PackageProduct")
+                    XCTAssertEqual(target.productType, .framework)
+                    XCTAssertEqual(target.productName, "BarLib.framework")
+                    XCTAssertEqual(target.dependencies, ["PACKAGE-TARGET:BarLogging", "PACKAGE-TARGET:Lib"])
+                    XCTAssertEqual(target.frameworks, ["PACKAGE-TARGET:BarLogging", "PACKAGE-TARGET:Lib"])
+
+                    target.checkBuildConfiguration("Debug") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:BarLib::BUILDCONFIG_Debug")
+                        XCTAssertEqual(configuration.name, "Debug")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "BarLib")
+                            XCTAssertEqual(settings[.PRODUCT_NAME], "BarLib")
+                            XCTAssertEqual(settings[.TARGET_NAME], "BarLib")
+                        }
+                    }
+
+                    target.checkBuildConfiguration("Release") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:BarLib::BUILDCONFIG_Release")
+                        XCTAssertEqual(configuration.name, "Release")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "BarLib")
+                            XCTAssertEqual(settings[.PRODUCT_NAME], "BarLib")
+                            XCTAssertEqual(settings[.TARGET_NAME], "BarLib")
+                        }
+                    }
+                }
+                project.checkTarget("PACKAGE-TARGET:BarLogging") { target in
+                    XCTAssertEqual(target.name, "BarLogging")
+                    XCTAssertEqual(target.productType, .objectFile)
+                    XCTAssertEqual(target.productName, "BarLogging.o")
+                    XCTAssertEqual(target.dependencies, [])
+                    XCTAssertEqual(target.frameworks, [])
+
+                    target.checkBuildConfiguration("Debug") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:BarLogging::BUILDCONFIG_Debug")
+                        XCTAssertEqual(configuration.name, "Debug")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertEqual(settings[.SWIFT_MODULE_ALIASES], ["Logging=BarLogging"])
+                            XCTAssertEqual(settings[.PRODUCT_NAME], "BarLogging.o")
+                            XCTAssertEqual(settings[.TARGET_NAME], "BarLogging")
+                        }
+                    }
+
+                    target.checkBuildConfiguration("Release") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:BarLogging::BUILDCONFIG_Release")
+                        XCTAssertEqual(configuration.name, "Release")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertEqual(settings[.SWIFT_MODULE_ALIASES], ["Logging=BarLogging"])
+                            XCTAssertEqual(settings[.PRODUCT_NAME], "BarLogging.o")
+                            XCTAssertEqual(settings[.TARGET_NAME], "BarLogging")
+                        }
+                    }
+                }
+                project.checkTarget("PACKAGE-TARGET:Lib") { target in
+                    XCTAssertEqual(target.name, "Lib")
+                    XCTAssertEqual(target.productType, .objectFile)
+                    XCTAssertEqual(target.productName, "Lib.o")
+                    XCTAssertEqual(target.dependencies, ["PACKAGE-TARGET:BarLogging"])
+                    XCTAssertEqual(target.frameworks, [])
+
+                    target.checkBuildConfiguration("Debug") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Lib::BUILDCONFIG_Debug")
+                        XCTAssertEqual(configuration.name, "Debug")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertEqual(settings[.SWIFT_MODULE_ALIASES], ["Logging=BarLogging"])
+                            XCTAssertEqual(settings[.PRODUCT_NAME], "Lib.o")
+                            XCTAssertEqual(settings[.TARGET_NAME], "Lib")
+                        }
+                    }
+
+                    target.checkBuildConfiguration("Release") { configuration in
+                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Lib::BUILDCONFIG_Release")
+                        XCTAssertEqual(configuration.name, "Release")
+                        configuration.checkBuildSettings { settings in
+                            XCTAssertEqual(settings[.SWIFT_MODULE_ALIASES], ["Logging=BarLogging"])
+                            XCTAssertEqual(settings[.PRODUCT_NAME], "Lib.o")
+                            XCTAssertEqual(settings[.TARGET_NAME], "Lib")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func testLibraryTargetsAsDylib() throws {
         #if !os(macOS)
         try XCTSkipIf(true, "test is only supported on macOS")
@@ -1470,7 +1699,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Bar",
@@ -1523,7 +1752,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createManifest(
                     name: "Bar",
@@ -1581,7 +1810,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1692,15 +1921,15 @@ class PIFBuilderTests: XCTestCase {
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         let fs = InMemoryFileSystem(emptyFiles:
-                                        "/Foo/Sources/foo/main.swift",
-                                    "/Foo/Sources/FooLib/lib.swift",
-                                    "/Foo/Sources/FooTests/FooTests.swift",
-                                    "/Foo/BinaryLibrary.xcframework/Info.plist"
+            "/Foo/Sources/foo/main.swift",
+            "/Foo/Sources/FooLib/lib.swift",
+            "/Foo/Sources/FooTests/FooTests.swift",
+            "/Foo/BinaryLibrary.xcframework/Info.plist"
         )
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1717,7 +1946,9 @@ class PIFBuilderTests: XCTestCase {
                     ]),
             ],
             binaryArtifacts: [
-                .init(kind: .xcframework, originURL: nil, path: AbsolutePath("/Foo/BinaryLibrary.xcframework"))
+                .plain("foo"): [
+                    "BinaryLibrary": .init(kind: .xcframework, originURL: nil, path: AbsolutePath("/Foo/BinaryLibrary.xcframework"))
+                ]
             ],
             shouldCreateMultipleTestProducts: true,
             observabilityScope: observability.topScope
@@ -1772,7 +2003,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -1988,7 +2219,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -2202,7 +2433,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createManifest(
                     name: "Foo",
@@ -2271,7 +2502,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "Foo",
@@ -2321,7 +2552,7 @@ class PIFBuilderTests: XCTestCase {
 
         let observability = ObservabilitySystem.makeForTesting()
         let graph = try loadPackageGraph(
-            fs: fs,
+            fileSystem: fs,
             manifests: [
                 Manifest.createRootManifest(
                     name: "MyLib",

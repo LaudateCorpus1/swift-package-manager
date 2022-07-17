@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2022 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import PackageModel
@@ -298,7 +300,7 @@ class RegistryDownloadsManagerTests: XCTestCase {
                 }
             }
 
-            if case .timedOut = group.wait(timeout: .now() + 10) {
+            if case .timedOut = group.wait(timeout: .now() + 60) {
                 return XCTFail("timeout")
             }
 
@@ -342,7 +344,7 @@ class RegistryDownloadsManagerTests: XCTestCase {
                 }
             }
 
-            if case .timedOut = group.wait(timeout: .now() + 10) {
+            if case .timedOut = group.wait(timeout: .now() + 60) {
                 return XCTFail("timeout")
             }
 
@@ -363,7 +365,7 @@ private class MockRegistryDownloadsManagerDelegate: RegistryDownloadsManagerDele
     private var _willFetch = [(packageVersion: PackageVersion, fetchDetails: RegistryDownloadsManager.FetchDetails)]()
     private var _didFetch = [(packageVersion: PackageVersion, result: Result<RegistryDownloadsManager.FetchDetails, Error>)]()
 
-    private let lock = Lock()
+    private let lock = NSLock()
     private var group = DispatchGroup()
 
     public func prepare(fetchExpected: Bool) {

@@ -1,4 +1,4 @@
-# This source file is part of the Swift.org open source project
+# This source file is part of the Swift open source project
 #
 # Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
@@ -47,10 +47,8 @@ set_target_properties(PackageDescription PROPERTIES
 )
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin)
-  if(Foundation_FOUND)
-    target_link_libraries(PackageDescription PRIVATE
-      Foundation)
-  endif()
+  target_link_libraries(PackageDescription PRIVATE
+    Foundation)
   target_link_options(PackageDescription PRIVATE
     "SHELL:-no-toolchain-stdlib-rpath")
   set_target_properties(PackageDescription PROPERTIES

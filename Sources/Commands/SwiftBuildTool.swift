@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import ArgumentParser
 import Basics
@@ -67,6 +69,11 @@ struct BuildToolOptions: ParsableArguments {
     @Flag(name: .customLong("show-bin-path"), help: "Print the binary output path")
     var shouldPrintBinPath: Bool = false
 
+    /// Whether to output a graphviz file visualization of the combined job graph for all targets
+    @Flag(name: .customLong("print-manifest-job-graph"),
+          help: "Write the command graph for the build manifest as a graphviz file")
+    var printManifestGraphviz: Bool = false
+
     /// Specific target to build.
     @Option(help: "Build the specified target")
     var target: String?
@@ -83,18 +90,28 @@ public struct SwiftBuildTool: SwiftCommand {
         _superCommandName: "swift",
         abstract: "Build sources into binary products",
         discussion: "SEE ALSO: swift run, swift package, swift test",
-        version: SwiftVersion.currentVersion.completeDisplayString,
+        version: SwiftVersion.current.completeDisplayString,
         helpNames: [.short, .long, .customLong("help", withSingleDash: true)])
 
-    @OptionGroup(_hiddenFromHelp: true)
-    var swiftOptions: SwiftToolOptions
+    @OptionGroup()
+    var globalOptions: GlobalOptions
 
     @OptionGroup()
     var options: BuildToolOptions
 
     public func run(_ swiftTool: SwiftTool) throws {
         if options.shouldPrintBinPath {
-            try print(swiftTool.buildParameters().buildPath.description)
+            return try print(swiftTool.buildParameters().buildPath.description)
+        }
+
+        if options.printManifestGraphviz {
+            let buildOperation = try swiftTool.createBuildOperation()
+            let buildManifest = try buildOperation.getBuildManifest()
+            var serializer = DOTManifestSerializer(manifest: buildManifest)
+            // print to stdout
+            let outputStream = stdoutStream
+            serializer.writeDOT(to: outputStream)
+            outputStream.flush()
             return
         }
 
@@ -122,9 +139,9 @@ public struct SwiftBuildTool: SwiftCommand {
 
     private func checkClangVersion(observabilityScope: ObservabilityScope) {
         // We only care about this on Ubuntu 14.04
-        guard let uname = try? Process.checkNonZeroExit(args: "lsb_release", "-r").spm_chomp(),
+        guard let uname = try? TSCBasic.Process.checkNonZeroExit(args: "lsb_release", "-r").spm_chomp(),
               uname.hasSuffix("14.04"),
-              let clangVersionOutput = try? Process.checkNonZeroExit(args: "clang", "--version").spm_chomp(),
+              let clangVersionOutput = try? TSCBasic.Process.checkNonZeroExit(args: "clang", "--version").spm_chomp(),
               let clang = getClangVersion(versionOutput: clangVersionOutput) else {
             return
         }

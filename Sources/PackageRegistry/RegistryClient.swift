@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Dispatch
@@ -18,7 +20,7 @@ import TSCBasic
 
 /// Package registry client.
 /// API specification: https://github.com/apple/swift-package-manager/blob/main/Documentation/Registry.md
-public final class RegistryClient {
+public final class RegistryClient: Cancellable {
     private let apiVersion: APIVersion = .v1
 
     private let configuration: RegistryConfiguration
@@ -48,6 +50,11 @@ public final class RegistryClient {
 
     public var configured: Bool {
         return !self.configuration.isEmpty
+    }
+
+    /// Cancel any outstanding requests
+    public func cancel(deadline: DispatchTime) throws {
+        try self.httpClient.cancel(deadline: deadline)
     }
 
     public func getPackageMetadata(
@@ -160,7 +167,7 @@ public final class RegistryClient {
                     }
 
                     var result = [String: (toolsVersion: ToolsVersion, content: String?)]()
-                    let toolsVersion = try ToolsVersionLoader().load(utf8String: manifestContent)
+                    let toolsVersion = try ToolsVersionParser.parse(utf8String: manifestContent)
                     result[Manifest.filename] = (toolsVersion: toolsVersion, content: manifestContent)
 
                     let alternativeManifests = try response.headers.parseManifestLinks()
@@ -871,7 +878,7 @@ fileprivate extension AbsolutePath {
     func withExtension(_ extension: String) -> AbsolutePath {
         guard !self.isRoot else { return self }
         let `extension` = `extension`.spm_dropPrefix(".")
-        return AbsolutePath(self, RelativePath("..")).appending(component: "\(basename).\(`extension`)")
+        return self.parentDirectory.appending(component: "\(basename).\(`extension`)")
     }
 }
 

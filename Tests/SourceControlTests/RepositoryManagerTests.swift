@@ -1,14 +1,16 @@
-/*
- This source file is part of the Swift.org open source project
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
-
-import Basics
+@testable import Basics
 import PackageModel
 import SPMTestSupport
 @testable import SourceControl
@@ -353,13 +355,13 @@ class RepositoryManagerTests: XCTestCase {
                     observabilityScope: observability.topScope,
                     delegateQueue: .sharedConcurrent,
                     callbackQueue: .sharedConcurrent
-                ) { result in
+                ) { result in                    
                     results[index] = result
                     group.leave()
                 }
             }
 
-            if case .timedOut = group.wait(timeout: .now() + 10) {
+            if case .timedOut = group.wait(timeout: .now() + 60) {
                 return XCTFail("timeout")
             }
 
@@ -428,6 +430,138 @@ class RepositoryManagerTests: XCTestCase {
             XCTAssertEqual(delegate.didUpdate.count, 2)
         }
     }
+
+    func testCancel() throws {
+        let observability = ObservabilitySystem.makeForTesting()
+        let cancellator = Cancellator(observabilityScope: observability.topScope)
+
+        let total = 10
+        let provider = MockRepositoryProvider(total: total)
+        let manager = RepositoryManager(
+            fileSystem: InMemoryFileSystem(),
+            path: .root,
+            provider: provider,
+            maxConcurrentOperations: total
+        )
+
+        cancellator.register(name: "repository manager", handler: manager)
+
+        //let startGroup = DispatchGroup()
+        let finishGroup = DispatchGroup()
+        let results = ThreadSafeKeyValueStore<RepositorySpecifier, Result<RepositoryManager.RepositoryHandle, Error>>()
+        for index in 0 ..< total {
+            let repository = RepositorySpecifier(path: .init("/repo/\(index)"))
+            provider.startGroup.enter()
+            finishGroup.enter()
+            manager.lookup(
+                package: .init(url: repository.url),
+                repository: repository,
+                skipUpdate: true,
+                observabilityScope: observability.topScope,
+                delegateQueue: .sharedConcurrent,
+                callbackQueue: .sharedConcurrent
+            ) { result in
+                defer { finishGroup.leave() }
+                results[repository] = result
+            }
+        }
+
+        XCTAssertEqual(.success, provider.startGroup.wait(timeout: .now() + 5), "timeout starting tasks")
+
+        let cancelled = cancellator._cancel(deadline: .now() + .seconds(1))
+        XCTAssertEqual(cancelled, 1, "expected to be terminated")
+        XCTAssertNoDiagnostics(observability.diagnostics)
+        // this releases the fetch threads that are waiting to test if the call was cancelled
+        provider.terminatedGroup.leave()
+
+        XCTAssertEqual(.success, finishGroup.wait(timeout: .now() + 5), "timeout finishing tasks")
+
+        XCTAssertEqual(results.count, total, "expected \(total) results")
+        for (repository, result) in results.get() {
+            switch (Int(repository.basename)! < total / 2, result) {
+            case (true, .success):
+                break // as expected!
+            case (true, .failure(let error)):
+                XCTFail("expected success, but failed with \(type(of: error)) '\(error)'")
+            case (false, .success):
+                XCTFail("expected operation to be cancelled")
+            case (false, .failure(let error)):
+                XCTAssert(error is CancellationError, "expected error to be CancellationError, but was \(type(of: error)) '\(error)'")
+            }
+        }
+
+        // wait for outstanding threads that would be cancelled and completion handlers thrown away
+        XCTAssertEqual(.success, provider.outstandingGroup.wait(timeout: .now() + .seconds(5)), "timeout waiting for outstanding tasks")
+
+        // the provider called in a thread managed by the RepositoryManager
+        // the use of blocking semaphore is intentional
+        class MockRepositoryProvider: RepositoryProvider {
+            let total: Int
+            // this DispatchGroup is used to wait for the requests to start before calling cancel
+            let startGroup = DispatchGroup()
+            // this DispatchGroup is used to park the delayed threads that would be cancelled
+            let terminatedGroup = DispatchGroup()
+            // this DispatchGroup is used to monitor the outstanding threads that would be cancelled and completion handlers thrown away
+            let outstandingGroup = DispatchGroup()
+
+            init(total: Int) {
+                self.total = total
+                self.terminatedGroup.enter()
+            }
+
+            func fetch(repository: RepositorySpecifier, to path: AbsolutePath, progressHandler: ((FetchProgress) -> Void)?) throws {
+                print("fetching \(repository)")
+                // startGroup may not be 100% accurate given the blocking nature of the provider so giving it a bit of a buffer
+                DispatchQueue.sharedConcurrent.asyncAfter(deadline: .now() + .milliseconds(100)) {
+                    self.startGroup.leave()
+                }
+                if Int(repository.basename)! >= total / 2 {
+                    self.outstandingGroup.enter()
+                    defer { self.outstandingGroup.leave() }
+                    print("\(repository) waiting to be cancelled")
+                    XCTAssertEqual(.success, self.terminatedGroup.wait(timeout: .now() + 5), "timeout waiting on terminated signal")
+                    throw StringError("\(repository) should be cancelled")
+                }
+                print("\(repository) okay")
+            }
+
+            func repositoryExists(at path: AbsolutePath) throws -> Bool {
+                return false
+            }
+
+            func open(repository: RepositorySpecifier, at path: AbsolutePath) throws -> Repository {
+                fatalError("should not be called")
+            }
+
+            func createWorkingCopy(repository: RepositorySpecifier, sourcePath: AbsolutePath, at destinationPath: AbsolutePath, editable: Bool) throws -> WorkingCheckout {
+                fatalError("should not be called")
+            }
+
+            func workingCopyExists(at path: AbsolutePath) throws -> Bool {
+                fatalError("should not be called")
+            }
+
+            func openWorkingCopy(at path: AbsolutePath) throws -> WorkingCheckout {
+                fatalError("should not be called")
+            }
+
+            func copy(from sourcePath: AbsolutePath, to destinationPath: AbsolutePath) throws {
+                fatalError("should not be called")
+            }
+
+            func isValidDirectory(_ directory: AbsolutePath) -> Bool {
+                fatalError("should not be called")
+            }
+
+            func isValidRefFormat(_ ref: String) -> Bool {
+                fatalError("should not be called")
+            }
+
+            func cancel(deadline: DispatchTime) throws {
+                print("cancel")
+            }
+        }
+    }
 }
 
 extension RepositoryManager {
@@ -437,6 +571,7 @@ extension RepositoryManager {
         provider: RepositoryProvider,
         cachePath: AbsolutePath? =  .none,
         cacheLocalPackages: Bool = false,
+        maxConcurrentOperations: Int? = .none,
         delegate: RepositoryManagerDelegate? = .none
     ) {
         self.init(
@@ -445,6 +580,7 @@ extension RepositoryManager {
             provider: provider,
             cachePath: cachePath,
             cacheLocalPackages: cacheLocalPackages,
+            maxConcurrentOperations: maxConcurrentOperations,
             initializationWarningHandler: { _ in },
             delegate: delegate
         )
@@ -516,7 +652,7 @@ private class DummyRepository: Repository {
 private class DummyRepositoryProvider: RepositoryProvider {
     private let fileSystem: FileSystem
 
-    private let lock = Lock()
+    private let lock = NSLock()
     private var _numClones = 0
     private var _numFetches = 0
 
@@ -534,7 +670,7 @@ private class DummyRepositoryProvider: RepositoryProvider {
         }
 
         // We only support one dummy URL.
-        let basename = repository.location.description.components(separatedBy: "/").last!
+        let basename = repository.url.pathComponents.last!
         if basename != "dummy" {
             throw DummyError.invalidRepository
         }
@@ -582,6 +718,10 @@ private class DummyRepositoryProvider: RepositoryProvider {
 
     func isValidRefFormat(_ ref: String) -> Bool {
         return true
+    }
+
+    func cancel(deadline: DispatchTime) throws {
+        // noop
     }
 
     func increaseFetchCount() {

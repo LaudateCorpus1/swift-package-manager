@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2022 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import ArgumentParser
 import Basics
@@ -32,7 +34,7 @@ public struct SwiftPackageTool: ParsableCommand {
         _superCommandName: "swift",
         abstract: "Perform operations on Swift packages",
         discussion: "SEE ALSO: swift build, swift run, swift test",
-        version: SwiftVersion.currentVersion.completeDisplayString,
+        version: SwiftVersion.current.completeDisplayString,
         subcommands: [
             Clean.self,
             PurgeCache.self,
@@ -70,7 +72,7 @@ public struct SwiftPackageTool: ParsableCommand {
         helpNames: [.short, .long, .customLong("help", withSingleDash: true)])
 
     @OptionGroup()
-    var swiftOptions: SwiftToolOptions
+    var globalOptions: GlobalOptions
 
     public init() {}
 
@@ -85,7 +87,7 @@ extension SwiftPackageTool {
             abstract: "Delete build artifacts")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         func run(_ swiftTool: SwiftTool) throws {
             try swiftTool.getActiveWorkspace().clean(observabilityScope: swiftTool.observabilityScope)
@@ -97,7 +99,7 @@ extension SwiftPackageTool {
             abstract: "Purge the global repository cache.")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         func run(_ swiftTool: SwiftTool) throws {
             try swiftTool.getActiveWorkspace().purgeCache(observabilityScope: swiftTool.observabilityScope)
@@ -109,7 +111,7 @@ extension SwiftPackageTool {
             abstract: "Reset the complete cache/build directory")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         func run(_ swiftTool: SwiftTool) throws {
             try swiftTool.getActiveWorkspace().reset(observabilityScope: swiftTool.observabilityScope)
@@ -121,7 +123,7 @@ extension SwiftPackageTool {
             abstract: "Update package dependencies")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Flag(name: [.long, .customShort("n")],
               help: "Display the list of dependencies that can be updated")
@@ -191,7 +193,7 @@ extension SwiftPackageTool {
             abstract: "Describe the current package")
         
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
         
         @Option(help: "json | text")
         var type: DescribeMode = .text
@@ -244,9 +246,17 @@ extension SwiftPackageTool {
             abstract: "Initialize a new package")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
-
-        @Option(name: .customLong("type"), help: "Package type: empty | library | executable | system-module | manifest")
+        var globalOptions: GlobalOptions
+        
+        @Option(
+            name: .customLong("type"),
+            help: ArgumentHelp("Package type: empty | library | executable | system-module | manifest", discussion: """
+                empty - Create an empty package
+                library - Create a package that contains a library
+                executable - Create a package that contains a binary executable
+                system-module - Create a package that contains a system module
+                manifest - Create a Package.swift file
+                """))
         var initMode: InitPackage.PackageType = .library
 
         @Option(name: .customLong("name"), help: "Provide custom package name")
@@ -276,7 +286,7 @@ extension SwiftPackageTool {
             commandName: "_format")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Argument(parsing: .unconditionalRemaining,
                   help: "Pass flag through to the swift-format tool")
@@ -321,7 +331,7 @@ extension SwiftPackageTool {
             let args = [swiftFormat.pathString] + formatOptions + [packagePath.pathString] + paths
             print("Running:", args.map{ $0.spm_shellEscaped() }.joined(separator: " "))
 
-            let result = try Process.popen(arguments: args)
+            let result = try TSCBasic.Process.popen(arguments: args)
             let output = try (result.utf8Output() + result.utf8stderrOutput())
 
             if result.exitStatus != .terminated(code: 0) {
@@ -362,7 +372,7 @@ extension SwiftPackageTool {
             """)
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Option(help: """
         The path to a text file containing breaking changes which should be ignored by the API comparison. \
@@ -393,7 +403,7 @@ extension SwiftPackageTool {
             let apiDigesterPath = try swiftTool.getToolchain().getSwiftAPIDigester()
             let apiDigesterTool = SwiftAPIDigester(fileSystem: swiftTool.fileSystem, tool: apiDigesterPath)
 
-            let packageRoot = try swiftOptions.packagePath ?? swiftTool.getPackageRoot()
+            let packageRoot = try globalOptions.locations.packageDirectory ?? swiftTool.getPackageRoot()
             let repository = GitRepository(path: packageRoot)
             let baselineRevision = try repository.resolveRevision(identifier: treeish)
 
@@ -561,7 +571,7 @@ extension SwiftPackageTool {
         static let defaultMinimumAccessLevel = SymbolGraphExtract.AccessLevel.public
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Flag(help: "Pretty-print the output JSON.")
         var prettyPrint = false
@@ -592,7 +602,9 @@ extension SwiftPackageTool {
                 skipSynthesizedMembers: skipSynthesizedMembers,
                 minimumAccessLevel: minimumAccessLevel,
                 skipInheritedDocs: skipInheritedDocs,
-                includeSPISymbols: includeSPISymbols)
+                includeSPISymbols: includeSPISymbols,
+                outputFormat: .json(pretty: prettyPrint)
+            )
 
             // Run the tool once for every library and executable target in the root package.
             let buildPlan = buildOp.buildPlan!
@@ -617,7 +629,7 @@ extension SwiftPackageTool {
             abstract: "Print parsed Package.swift as JSON")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         func run(_ swiftTool: SwiftTool) throws {
             let workspace = try swiftTool.getActiveWorkspace()
@@ -645,7 +657,7 @@ extension SwiftPackageTool {
 
     struct DumpPIF: SwiftCommand {
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Flag(help: "Preserve the internal structure of PIF")
         var preserveStructure: Bool = false
@@ -669,7 +681,7 @@ extension SwiftPackageTool {
             abstract: "Put a package in editable mode")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Option(help: "The revision to edit", transform: { Revision(identifier: $0) })
         var revision: Revision?
@@ -703,7 +715,7 @@ extension SwiftPackageTool {
             abstract: "Remove a package from editable mode")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Flag(name: .customLong("force"),
               help: "Unedit the package even if it has uncommited and unpushed changes")
@@ -730,7 +742,7 @@ extension SwiftPackageTool {
             abstract: "Print the resolved dependency graph")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Option(help: "text | dot | json | flatlist")
         var format: ShowDependenciesMode = .text
@@ -798,7 +810,7 @@ extension SwiftPackageTool {
             abstract: "Manipulate tools version of the current package")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Flag(help: "Set tools version of package to the current tools version in use")
         var setCurrent: Bool = false
@@ -828,23 +840,30 @@ extension SwiftPackageTool {
 
             switch toolsVersionMode {
             case .display:
-                let toolsVersionLoader = ToolsVersionLoader()
-                let version = try toolsVersionLoader.load(at: pkg, fileSystem: swiftTool.fileSystem)
+                let manifestPath = try ManifestLoader.findManifest(packagePath: pkg, fileSystem: swiftTool.fileSystem, currentToolsVersion: .current)
+                let version = try ToolsVersionParser.parse(manifestPath: manifestPath, fileSystem: swiftTool.fileSystem)
                 print("\(version)")
 
             case .set(let value):
                 guard let toolsVersion = ToolsVersion(string: value) else {
                     // FIXME: Probably lift this error definition to ToolsVersion.
-                    throw ToolsVersionLoader.Error.malformedToolsVersionSpecification(.versionSpecifier(.isMisspelt(value)))
+                    throw ToolsVersionParser.Error.malformedToolsVersionSpecification(.versionSpecifier(.isMisspelt(value)))
                 }
-                try rewriteToolsVersionSpecification(toDefaultManifestIn: pkg, specifying: toolsVersion, fileSystem: swiftTool.fileSystem)
+                try ToolsVersionSpecificationWriter.rewriteSpecification(
+                    manifestDirectory: pkg,
+                    toolsVersion: toolsVersion,
+                    fileSystem: swiftTool.fileSystem
+                )
 
             case .setCurrent:
                 // Write the tools version with current version but with patch set to zero.
                 // We do this to avoid adding unnecessary constraints to patch versions, if
                 // the package really needs it, they can do it using --set option.
-                try rewriteToolsVersionSpecification(
-                    toDefaultManifestIn: pkg, specifying: ToolsVersion.currentToolsVersion.zeroedPatch, fileSystem: swiftTool.fileSystem)
+                try ToolsVersionSpecificationWriter.rewriteSpecification(
+                    manifestDirectory: pkg,
+                    toolsVersion: ToolsVersion.current.zeroedPatch,
+                    fileSystem: swiftTool.fileSystem
+                )
             }
         }
     }
@@ -854,14 +873,22 @@ extension SwiftPackageTool {
             abstract: "Compute the checksum for a binary artifact.")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Argument(help: "The absolute or relative path to the binary artifact")
         var path: AbsolutePath
 
         func run(_ swiftTool: SwiftTool) throws {
-            let workspace = try swiftTool.getActiveWorkspace()
-            let checksum = try workspace.checksum(forBinaryArtifactAt: path)
+            let binaryArtifactsManager = try Workspace.BinaryArtifactsManager(
+                fileSystem: swiftTool.fileSystem,
+                authorizationProvider: swiftTool.getAuthorizationProvider(),
+                hostToolchain: swiftTool.getHostToolchain(),
+                checksumAlgorithm: SHA256(),
+                customHTTPClient: .none,
+                customArchiver: .none,
+                delegate: .none
+            )
+            let checksum = try binaryArtifactsManager.checksum(forBinaryArtifactAt: path)
             print(checksum)
         }
     }
@@ -873,7 +900,7 @@ extension SwiftPackageTool {
         )
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Option(
             name: [.short, .long],
@@ -882,7 +909,7 @@ extension SwiftPackageTool {
         var output: AbsolutePath?
 
         func run(_ swiftTool: SwiftTool) throws {
-            let packageRoot = try swiftOptions.packagePath ?? swiftTool.getPackageRoot()
+            let packageRoot = try globalOptions.locations.packageDirectory ?? swiftTool.getPackageRoot()
             let repository = GitRepository(path: packageRoot)
 
             let destination: AbsolutePath
@@ -912,7 +939,7 @@ extension SwiftPackageTool {
         )
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Flag(name: .customLong("list"),
               help: "List the available command plugins")
@@ -995,11 +1022,9 @@ extension SwiftPackageTool {
             let pluginsDir = try swiftTool.getActiveWorkspace().location.pluginWorkingDirectory.appending(component: plugin.name)
 
             // The `cache` directory is in the plugin’s directory and is where the plugin script runner caches compiled plugin binaries and any other derived information for this plugin.
-            let pluginScriptRunner = DefaultPluginScriptRunner(
-                fileSystem: swiftTool.fileSystem,
-                cacheDir: pluginsDir.appending(component: "cache"),
-                toolchain: try swiftTool.getToolchain().configuration,
-                enableSandbox: !swiftTool.options.shouldDisableSandbox)
+            let pluginScriptRunner = try swiftTool.getPluginScriptRunner(
+                customPluginsDir: pluginsDir
+            )
 
             // The `outputs` directory contains subdirectories for each combination of package and command plugin. Each usage of a plugin has an output directory that is writable by the plugin, where it can write additional files, and to which it can configure tools to write their outputs, etc.
             let outputDir = pluginsDir.appending(component: "outputs")
@@ -1013,8 +1038,26 @@ extension SwiftPackageTool {
                 // If the plugin requires write permission but it wasn't provided, we ask the user for approval.
                 if case .command(_, let permissions) = plugin.capability {
                     for case PluginPermission.writeToPackageDirectory(let reason) in permissions {
-                        // TODO: Ask for approval here if connected to TTY; only emit an error if not.
-                        throw ValidationError("Plugin ‘\(plugin.name)’ needs permission to write to the package directory (stated reason: “\(reason)”)")
+                        let problem = "Plugin ‘\(plugin.name)’ wants permission to write to the package directory."
+                        let reason = "Stated reason: “\(reason)”."
+                        if swiftTool.outputStream.isTTY {
+                            // We can ask the user directly, so we do so.
+                            let query = "Allow this plugin to write to the package directory?"
+                            swiftTool.outputStream.write("\(problem)\n\(reason)\n\(query) (yes/no) ".utf8)
+                            swiftTool.outputStream.flush()
+                            let answer = readLine(strippingNewline: true)
+                            // Throw an error if we didn't get permission.
+                            if answer?.lowercased() != "yes" {
+                                throw ValidationError("Plugin was denied permission to write to the package directory.")
+                            }
+                            // Otherwise append the directory to the list of allowed ones.
+                            writableDirectories.append(package.path)
+                        }
+                        else {
+                            // We can't ask the user, so emit an error suggesting passing the flag.
+                            let remedy = "Use `--allow-writing-to-package-directory` to allow this."
+                            throw ValidationError([problem, reason, remedy].joined(separator: "\n"))
+                        }
                     }
                 }
             }
@@ -1170,32 +1213,20 @@ final class PluginDelegate: PluginInvocationDelegate {
 
         // Create a build operation. We have to disable the cache in order to get a build plan created.
         let outputStream = BufferedOutputByteStream()
-        let buildOperation = BuildOperation(
-            buildParameters: buildParameters,
+        let buildOperation = try self.swiftTool.createBuildOperation(
+            explicitProduct: explicitProduct,
             cacheBuildManifest: false,
-            packageGraphLoader: { try self.swiftTool.loadPackageGraph(explicitProduct: explicitProduct) },
-            pluginScriptRunner: try self.swiftTool.getPluginScriptRunner(),
-            pluginWorkDirectory: try self.swiftTool.getActiveWorkspace().location.pluginWorkingDirectory,
-            outputStream: outputStream,
-            logLevel: logLevel,
-            fileSystem: swiftTool.fileSystem,
-            observabilityScope: self.swiftTool.observabilityScope
+            customBuildParameters: buildParameters,
+            customOutputStream: outputStream,
+            customLogLevel: logLevel
         )
 
-        // Save the instance so it can be canceled from the interrupt handler.
-        self.swiftTool.buildSystemRef.buildSystem = buildOperation
-
-        // Get or create the build description and plan the build.
-        let _ = try buildOperation.getBuildDescription()
-        let buildPlan = buildOperation.buildPlan!
-        
         // Run the build. This doesn't return until the build is complete.
-        var success = true
-        do {
-            try buildOperation.build(subset: buildSubset)
-        }
-        catch {
-            success = false
+        let success = buildOperation.buildIgnoringError(subset: buildSubset)
+
+        // Get the build plan used
+        guard let buildPlan = buildOperation.buildPlan else {
+            throw InternalError("invalid state, buildPlan is undefined")
         }
 
         // Create and return the build result record based on what the delegate collected and what's in the build plan.
@@ -1249,19 +1280,23 @@ final class PluginDelegate: PluginInvocationDelegate {
         }
 
         // Construct the environment we'll pass down to the tests.
-        var environmentOptions = swiftTool.options
-        environmentOptions.shouldEnableCodeCoverage = parameters.enableCodeCoverage
         let testEnvironment = try TestingSupport.constructTestEnvironment(
             toolchain: toolchain,
-            options: environmentOptions,
-            buildParameters: buildParameters)
+            buildParameters: buildParameters,
+            sanitizers: swiftTool.options.build.sanitizers
+        )
 
         // Iterate over the tests and run those that match the filter.
         var testTargetResults: [PluginInvocationTestResult.TestTarget] = []
         var numFailedTests = 0
         for testProduct in buildSystem.builtTestProducts {
             // Get the test suites in the bundle. Each is just a container for test cases.
-            let testSuites = try TestingSupport.getTestSuites(fromTestAt: testProduct.bundlePath, swiftTool: swiftTool, swiftOptions: swiftTool.options)
+            let testSuites = try TestingSupport.getTestSuites(
+                fromTestAt: testProduct.bundlePath,
+                swiftTool: swiftTool,
+                enableCodeCoverage: parameters.enableCodeCoverage,
+                sanitizers: swiftTool.options.build.sanitizers
+            )
             for testSuite in testSuites {
                 // Each test suite is just a container for test cases (confusingly called "tests", though they are test cases).
                 for testCase in testSuite.tests {
@@ -1280,7 +1315,7 @@ final class PluginDelegate: PluginInvocationDelegate {
                         let testRunner = TestRunner(
                             bundlePaths: [testProduct.bundlePath],
                             xctestArg: testSpecifier,
-                            processSet: swiftTool.processSet,
+                            cancellator: swiftTool.cancellator,
                             toolchain: toolchain,
                             testEnv: testEnvironment,
                             observabilityScope: swiftTool.observabilityScope)
@@ -1323,7 +1358,7 @@ final class PluginDelegate: PluginInvocationDelegate {
                 llvmProfCommand.append(filePath.pathString)
             }
             llvmProfCommand += ["-o", mergedCovFile.pathString]
-            try Process.checkNonZeroExit(arguments: llvmProfCommand)
+            try TSCBasic.Process.checkNonZeroExit(arguments: llvmProfCommand)
 
             // Use `llvm-cov` to export the merged `.profdata` file contents in JSON form.
             var llvmCovCommand = [try toolchain.getLLVMCov().pathString]
@@ -1333,7 +1368,7 @@ final class PluginDelegate: PluginInvocationDelegate {
                 llvmCovCommand.append(product.binaryPath.pathString)
             }
             // We get the output on stdout, and have to write it to a JSON ourselves.
-            let jsonOutput = try Process.checkNonZeroExit(arguments: llvmCovCommand)
+            let jsonOutput = try TSCBasic.Process.checkNonZeroExit(arguments: llvmCovCommand)
             let jsonCovFile = buildParameters.codeCovDataFile.parentDirectory.appending(component: buildParameters.codeCovDataFile.basenameWithoutExt + ".json")
             try swiftTool.fileSystem.writeFileContents(jsonCovFile, string: jsonOutput)
 
@@ -1441,7 +1476,7 @@ extension SwiftPackageTool {
             shouldDisplay: false)
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @OptionGroup()
         var pluginOptions: PluginCommand.PluginOptions
@@ -1517,19 +1552,25 @@ extension SwiftPackageTool {
 
             @Flag(help: "Do not add file references for extra files to the generated Xcode project")
             var skipExtraFiles: Bool = false
+
+            /// Whether to enable code coverage.
+            @Flag(name: .customLong("code-coverage"),
+                  inversion: .prefixedEnableDisable,
+                  help: "Enable code coverage")
+            var enableCodeCoverage: Bool = false
         }
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @OptionGroup()
         var options: Options
 
         func xcodeprojOptions() -> XcodeprojOptions {
             XcodeprojOptions(
-                flags: swiftOptions.buildFlags,
+                flags: globalOptions.build.buildFlags,
                 xcconfigOverrides: options.xcconfigOverrides,
-                isCodeCoverageEnabled: swiftOptions.shouldEnableCodeCoverage,
+                isCodeCoverageEnabled: options.enableCodeCoverage,
                 useLegacySchemeGenerator: options.useLegacySchemeGenerator,
                 enableAutogeneration: options.enableAutogeneration,
                 addExtraFiles: !options.skipExtraFiles)
@@ -1564,6 +1605,7 @@ extension SwiftPackageTool {
                 projectName: projectName,
                 xcodeprojPath: xcodeprojPath,
                 graph: graph,
+                repositoryProvider: GitRepositoryProvider(),
                 options: genOptions,
                 fileSystem: swiftTool.fileSystem,
                 observabilityScope: swiftTool.observabilityScope
@@ -1574,7 +1616,7 @@ extension SwiftPackageTool {
             // Run the file watcher if requested.
             if options.enableAutogeneration {
                 try WatchmanHelper(
-                    watchmanScriptsDir: swiftTool.buildPath.appending(component: "watchman"),
+                    watchmanScriptsDir: swiftTool.scratchDirectory.appending(component: "watchman"),
                     packageRoot: swiftTool.packageRoot!,
                     fileSystem: swiftTool.fileSystem,
                     observabilityScope: swiftTool.observabilityScope
@@ -1598,7 +1640,7 @@ extension SwiftPackageTool.Config {
             abstract: "Set a mirror for a dependency")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Option(help: "The package dependency url")
         var packageURL: String?
@@ -1633,7 +1675,7 @@ extension SwiftPackageTool.Config {
             abstract: "Remove an existing mirror")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Option(help: "The package dependency url")
         var packageURL: String?
@@ -1668,7 +1710,7 @@ extension SwiftPackageTool.Config {
             abstract: "Print mirror configuration for the given package dependency")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Option(help: "The package dependency url")
         var packageURL: String?
@@ -1729,7 +1771,7 @@ extension SwiftPackageTool {
             abstract: "Resolve package dependencies")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @OptionGroup()
         var resolveOptions: ResolveOptions
@@ -1760,7 +1802,7 @@ extension SwiftPackageTool {
         static let configuration = CommandConfiguration(shouldDisplay: false)
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @OptionGroup()
         var resolveOptions: ResolveOptions
@@ -1768,7 +1810,7 @@ extension SwiftPackageTool {
         func run(_ swiftTool: SwiftTool) throws {
             swiftTool.observabilityScope.emit(warning: "'fetch' command is deprecated; use 'resolve' instead")
 
-            let resolveCommand = Resolve(swiftOptions: _swiftOptions, resolveOptions: _resolveOptions)
+            let resolveCommand = Resolve(globalOptions: _globalOptions, resolveOptions: _resolveOptions)
             try resolveCommand.run(swiftTool)
         }
     }
@@ -1805,7 +1847,7 @@ extension SwiftPackageTool {
         }
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         @Argument(help: "generate-bash-script | generate-zsh-script |\ngenerate-fish-script | list-dependencies | list-executables")
         var mode: Mode
@@ -1849,7 +1891,7 @@ extension SwiftPackageTool {
     struct Learn: SwiftCommand {
 
         @OptionGroup()
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         static let configuration = CommandConfiguration(abstract: "Learn about Swift and this package")
 
@@ -1859,7 +1901,7 @@ extension SwiftPackageTool {
             }
 
             let files = try fileSystem.getDirectoryContents(directory)
-                .map { directory.appending(RelativePath($0)) }
+                .map { AbsolutePath($0, relativeTo: directory) }
                 .filter { fileSystem.isFile($0) }
 
             guard let fileExtension = fileExtension else {
@@ -1874,7 +1916,7 @@ extension SwiftPackageTool {
                 return []
             }
             return try fileSystem.getDirectoryContents(directory)
-                .map { directory.appending(RelativePath($0)) }
+                .map { AbsolutePath($0, relativeTo: directory) }
                 .filter { fileSystem.isDirectory($0) }
         }
 
@@ -1940,5 +1982,16 @@ private extension Basics.Diagnostic {
 
     static func missingRequiredArg(_ argument: String) -> Self {
         .error("missing required argument \(argument)")
+    }
+}
+
+extension BuildOperation {
+    fileprivate func buildIgnoringError(subset: BuildSubset) -> Bool {
+        do {
+            try self.build(subset: subset)
+            return true
+        } catch {
+            return false
+        }
     }
 }

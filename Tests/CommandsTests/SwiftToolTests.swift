@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 @testable import Basics
 @testable import Commands
@@ -20,7 +22,7 @@ final class SwiftToolTests: CommandsTestCase {
         try fixture(name: "Miscellaneous/Simple") { fixturePath in
             do {
                 let outputStream = BufferedOutputByteStream()
-                let options = try SwiftToolOptions.parse(["--package-path", fixturePath.pathString])
+                let options = try GlobalOptions.parse(["--package-path", fixturePath.pathString])
                 let tool = try SwiftTool(outputStream: outputStream, options: options)
                 XCTAssertEqual(tool.logLevel, .warning)
 
@@ -28,6 +30,8 @@ final class SwiftToolTests: CommandsTestCase {
                 tool.observabilityScope.emit(warning: "warning")
                 tool.observabilityScope.emit(info: "info")
                 tool.observabilityScope.emit(debug: "debug")
+
+                tool.waitForObservabilityEvents(timeout: .now() + .seconds(1))
 
                 XCTAssertMatch(outputStream.bytes.validDescription, .contains("error: error"))
                 XCTAssertMatch(outputStream.bytes.validDescription, .contains("warning: warning"))
@@ -37,7 +41,7 @@ final class SwiftToolTests: CommandsTestCase {
 
             do {
                 let outputStream = BufferedOutputByteStream()
-                let options = try SwiftToolOptions.parse(["--package-path", fixturePath.pathString, "--verbose"])
+                let options = try GlobalOptions.parse(["--package-path", fixturePath.pathString, "--verbose"])
                 let tool = try SwiftTool(outputStream: outputStream, options: options)
                 XCTAssertEqual(tool.logLevel, .info)
 
@@ -45,6 +49,8 @@ final class SwiftToolTests: CommandsTestCase {
                 tool.observabilityScope.emit(warning: "warning")
                 tool.observabilityScope.emit(info: "info")
                 tool.observabilityScope.emit(debug: "debug")
+
+                tool.waitForObservabilityEvents(timeout: .now() + .seconds(1))
 
                 XCTAssertMatch(outputStream.bytes.validDescription, .contains("error: error"))
                 XCTAssertMatch(outputStream.bytes.validDescription, .contains("warning: warning"))
@@ -54,7 +60,7 @@ final class SwiftToolTests: CommandsTestCase {
 
             do {
                 let outputStream = BufferedOutputByteStream()
-                let options = try SwiftToolOptions.parse(["--package-path", fixturePath.pathString, "-v"])
+                let options = try GlobalOptions.parse(["--package-path", fixturePath.pathString, "-v"])
                 let tool = try SwiftTool(outputStream: outputStream, options: options)
                 XCTAssertEqual(tool.logLevel, .info)
 
@@ -62,6 +68,8 @@ final class SwiftToolTests: CommandsTestCase {
                 tool.observabilityScope.emit(warning: "warning")
                 tool.observabilityScope.emit(info: "info")
                 tool.observabilityScope.emit(debug: "debug")
+
+                tool.waitForObservabilityEvents(timeout: .now() + .seconds(1))
 
                 XCTAssertMatch(outputStream.bytes.validDescription, .contains("error: error"))
                 XCTAssertMatch(outputStream.bytes.validDescription, .contains("warning: warning"))
@@ -71,7 +79,7 @@ final class SwiftToolTests: CommandsTestCase {
 
             do {
                 let outputStream = BufferedOutputByteStream()
-                let options = try SwiftToolOptions.parse(["--package-path", fixturePath.pathString, "--very-verbose"])
+                let options = try GlobalOptions.parse(["--package-path", fixturePath.pathString, "--very-verbose"])
                 let tool = try SwiftTool(outputStream: outputStream, options: options)
                 XCTAssertEqual(tool.logLevel, .debug)
 
@@ -79,6 +87,8 @@ final class SwiftToolTests: CommandsTestCase {
                 tool.observabilityScope.emit(warning: "warning")
                 tool.observabilityScope.emit(info: "info")
                 tool.observabilityScope.emit(debug: "debug")
+
+                tool.waitForObservabilityEvents(timeout: .now() + .seconds(1))
 
                 XCTAssertMatch(outputStream.bytes.validDescription, .contains("error: error"))
                 XCTAssertMatch(outputStream.bytes.validDescription, .contains("warning: warning"))
@@ -88,7 +98,7 @@ final class SwiftToolTests: CommandsTestCase {
 
             do {
                 let outputStream = BufferedOutputByteStream()
-                let options = try SwiftToolOptions.parse(["--package-path", fixturePath.pathString, "--vv"])
+                let options = try GlobalOptions.parse(["--package-path", fixturePath.pathString, "--vv"])
                 let tool = try SwiftTool(outputStream: outputStream, options: options)
                 XCTAssertEqual(tool.logLevel, .debug)
 
@@ -96,6 +106,8 @@ final class SwiftToolTests: CommandsTestCase {
                 tool.observabilityScope.emit(warning: "warning")
                 tool.observabilityScope.emit(info: "info")
                 tool.observabilityScope.emit(debug: "debug")
+
+                tool.waitForObservabilityEvents(timeout: .now() + .seconds(1))
 
                 XCTAssertMatch(outputStream.bytes.validDescription, .contains("error: error"))
                 XCTAssertMatch(outputStream.bytes.validDescription, .contains("warning: warning"))
@@ -117,7 +129,7 @@ final class SwiftToolTests: CommandsTestCase {
                     "machine mymachine.labkey.org login custom@labkey.org password custom"
                 }
 
-                let options = try SwiftToolOptions.parse(["--package-path", fixturePath.pathString, "--netrc-file", customPath.pathString])
+                let options = try GlobalOptions.parse(["--package-path", fixturePath.pathString, "--netrc-file", customPath.pathString])
                 let tool = try SwiftTool(options: options)
 
                 let authorizationProvider = try tool.getAuthorizationProvider() as? CompositeAuthorizationProvider
@@ -142,7 +154,7 @@ final class SwiftToolTests: CommandsTestCase {
                     return "machine mymachine.labkey.org login local@labkey.org password local"
                 }
 
-                let options = try SwiftToolOptions.parse(["--package-path", fixturePath.pathString])
+                let options = try GlobalOptions.parse(["--package-path", fixturePath.pathString])
                 let tool = try SwiftTool(options: options)
 
                 let authorizationProvider = try tool.getAuthorizationProvider() as? CompositeAuthorizationProvider

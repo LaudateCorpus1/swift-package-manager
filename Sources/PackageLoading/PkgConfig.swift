@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -121,14 +123,18 @@ public struct PkgConfig {
 
     private static var envSearchPaths: [AbsolutePath] {
         if let configPath = ProcessEnv.vars["PKG_CONFIG_PATH"] {
+#if os(Windows)
+            return configPath.split(separator: ";").map({ AbsolutePath(String($0)) })
+#else
             return configPath.split(separator: ":").map({ AbsolutePath(String($0)) })
+#endif
         }
         return []
     }
 }
 
 extension PkgConfig {
-    /// Informations to track circular dependencies and other PkgConfig issues
+    /// Information to track circular dependencies and other PkgConfig issues
     public class LoadingContext {
         public init() {
             pkgConfigStack = [String]()
@@ -172,7 +178,7 @@ internal struct PkgConfigParser {
         variables["pcfiledir"] = pcFile.parentDirectory.pathString
 
         // Add pc_sysrootdir variable. This is the path of the sysroot directory for pc files.
-        variables["pc_sysrootdir"] = ProcessEnv.vars["PKG_CONFIG_SYSROOT_DIR"] ?? "/"
+        variables["pc_sysrootdir"] = ProcessEnv.vars["PKG_CONFIG_SYSROOT_DIR"] ?? AbsolutePath.root.pathString
 
         let fileContents: String = try fileSystem.readFileContents(pcFile)
         for line in fileContents.components(separatedBy: "\n") {
@@ -218,8 +224,8 @@ internal struct PkgConfigParser {
 
     /// Parses `Requires: ` string into array of dependencies.
     ///
-    /// The dependency string has seperator which can be (multiple) space or a
-    /// comma.  Additionally each there can be an optional version constaint to
+    /// The dependency string has separator which can be (multiple) space or a
+    /// comma. Additionally each there can be an optional version constraint to
     /// a dependency.
     private func parseDependencies(_ depString: String) throws -> [String] {
         let operators = ["=", "<", ">", "<=", ">="]
@@ -237,7 +243,7 @@ internal struct PkgConfigParser {
             var tokens = [String]()
             var token = ""
             for (idx, char) in depString.enumerated() {
-                // Encountered a seperator, use the token.
+                // Encountered a separator, use the token.
                 if separators.contains(String(char)) {
                     // If next character is a space skip.
                     if let peeked = peek(idx: idx+1), peeked == " " { continue }
@@ -339,6 +345,9 @@ internal struct PkgConfigParser {
                 inQuotes = !inQuotes
             } else if char == "\\" {
                 if let next = it.next() {
+#if os(Windows)
+                    if ![" ", "\\"].contains(next) { fragment.append("\\") }
+#endif
                     fragment.append(next)
                 }
             } else if char == " " && !inQuotes {
@@ -380,24 +389,31 @@ internal struct PCFileFinder {
     ///
     /// This is needed because on Linux machines, the search paths can be different
     /// from the standard locations that we are currently searching.
-    public init(brewPrefix: AbsolutePath? = .none) {
-        //self.diagnostics = diagnostics
+    private init(pkgConfigPath: String) {
         if PCFileFinder.pkgConfigPaths == nil {
             do {
-                let pkgConfigPath: String
-                if let brewPrefix = brewPrefix {
-                    pkgConfigPath = brewPrefix.appending(components: "bin", "pkg-config").pathString
-                } else {
-                    pkgConfigPath = "pkg-config"
-                }
-                let searchPaths = try Process.checkNonZeroExit(
-                args: pkgConfigPath, "--variable", "pc_path", "pkg-config").spm_chomp()
+                let searchPaths = try TSCBasic.Process.checkNonZeroExit(args:
+                    pkgConfigPath, "--variable", "pc_path", "pkg-config"
+                ).spm_chomp()
+
+#if os(Windows)
+                PCFileFinder.pkgConfigPaths = searchPaths.split(separator: ";").map({ AbsolutePath(String($0)) })
+#else
                 PCFileFinder.pkgConfigPaths = searchPaths.split(separator: ":").map({ AbsolutePath(String($0)) })
+#endif
             } catch {
                 PCFileFinder.shouldEmitPkgConfigPathsDiagnostic = true
                 PCFileFinder.pkgConfigPaths = []
             }
         }
+    }
+
+    public init(brewPrefix: AbsolutePath?) {
+        self.init(pkgConfigPath: brewPrefix?.appending(components: "bin", "pkg-config").pathString ?? "pkg-config")
+    }
+
+    public init(pkgConfig: AbsolutePath? = .none) {
+        self.init(pkgConfigPath: pkgConfig?.pathString ?? "pkg-config")
     }
 
     /// Reset the cached `pkgConfigPaths` property, so that it will be evaluated

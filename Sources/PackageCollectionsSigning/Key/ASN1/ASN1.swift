@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
 //
@@ -15,10 +17,8 @@
 // Copyright (c) 2019-2020 Apple Inc. and the SwiftCrypto project authors
 // Licensed under Apache License v2.0
 //
-// See LICENSE.txt for license information
+// See http://swift.org/LICENSE.txt for license information
 // See CONTRIBUTORS.md for the list of SwiftCrypto project authors
-//
-// SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
 
@@ -342,7 +342,7 @@ extension ArraySlice where Element == UInt8 {
             let requiredBits = UInt.bitWidth - length.leadingZeroBitCount
             switch requiredBits {
             case 0 ... 7:
-                // For 0 to 7 bits, the long form is unnacceptable and we require the short.
+                // For 0 to 7 bits, the long form is unacceptable and we require the short.
                 throw ASN1Error.unsupportedFieldLength
             case 8...:
                 // For 8 or more bits, fieldLength should be the minimum required.

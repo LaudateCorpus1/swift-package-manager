@@ -1,21 +1,25 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Dispatch
+import class Foundation.NSLock
 import class Foundation.ProcessInfo
-import TSCBasic
+import enum TSCBasic.ProcessEnv
+import func TSCBasic.tsc_await
 
 /// Thread-safe dictionary like structure
 public final class ThreadSafeKeyValueStore<Key, Value> where Key: Hashable {
     private var underlying: [Key: Value]
-    private let lock = Lock()
+    private let lock = NSLock()
 
     public init(_ seed: [Key: Value] = [:]) {
         self.underlying = seed
@@ -53,9 +57,12 @@ public final class ThreadSafeKeyValueStore<Key, Value> where Key: Hashable {
         }
     }
 
-    public func clear() {
+    @discardableResult
+    public func clear() -> [Key: Value] {
         self.lock.withLock {
+            let underlying = self.underlying
             self.underlying.removeAll()
+            return underlying
         }
     }
 
@@ -93,7 +100,7 @@ public final class ThreadSafeKeyValueStore<Key, Value> where Key: Hashable {
 /// Thread-safe array like structure
 public final class ThreadSafeArrayStore<Value> {
     private var underlying: [Value]
-    private let lock = Lock()
+    private let lock = NSLock()
 
     public init(_ seed: [Value] = []) {
         self.underlying = seed
@@ -111,9 +118,12 @@ public final class ThreadSafeArrayStore<Value> {
         }
     }
 
-    public func clear() {
+    @discardableResult
+    public func clear() -> [Value] {
         self.lock.withLock {
-            self.underlying = []
+            let underlying = self.underlying
+            self.underlying.removeAll()
+            return underlying
         }
     }
 
@@ -162,7 +172,7 @@ public final class ThreadSafeArrayStore<Value> {
 @dynamicMemberLookup
 public final class ThreadSafeBox<Value> {
     private var underlying: Value?
-    private let lock = Lock()
+    private let lock = NSLock()
 
     public init() {}
 
@@ -194,6 +204,12 @@ public final class ThreadSafeBox<Value> {
         }
     }
 
+    public func get(`default`: Value) -> Value {
+        self.lock.withLock {
+            self.underlying ?? `default`
+        }
+    }
+
     public func put(_ newValue: Value) {
         self.lock.withLock {
             self.underlying = newValue
@@ -217,6 +233,23 @@ public final class ThreadSafeBox<Value> {
                 if var value = self.underlying {
                     value[keyPath: keyPath] = newValue
                 }
+            }
+        }
+    }
+}
+
+extension ThreadSafeBox where Value == Int {
+    public func increment() {
+        self.lock.withLock {
+            if let value = self.underlying {
+                self.underlying = value + 1
+            }
+        }
+    }
+    public func decrement() {
+        self.lock.withLock {
+            if let value = self.underlying {
+                self.underlying = value - 1
             }
         }
     }

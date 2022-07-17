@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import TSCBasic
@@ -425,7 +427,7 @@ public func xcodeProject(
 
         // Assign the deployment target if the package is using the newer manifest version.
         if package.manifest.toolsVersion >= .v5 {
-            for supportedPlatform in target.underlyingTarget.platforms {
+            for supportedPlatform in target.platforms.derived {
                 let version = supportedPlatform.version.versionString
                 switch supportedPlatform.platform {
                 case .macOS:
@@ -566,7 +568,7 @@ public func xcodeProject(
             targetSettings.common.CLANG_CXX_LANGUAGE_STANDARD = clangTarget.cxxLanguageStandard
         }
 
-        // Add the `include` group for a libary C language target.
+        // Add the `include` group for a library C language target.
         if case let clangTarget as ClangTarget = target.underlyingTarget,
             clangTarget.type == .library,
             fileSystem.isDirectory(clangTarget.includeDir) {
@@ -614,7 +616,7 @@ public func xcodeProject(
 
             if let moduleMapPath = moduleMapPath {
                 includeGroup.addFileReference(path: moduleMapPath.pathString, name: moduleMapPath.basename)
-                // Save this modulemap path mapped to target so we can later wire it up for its dependees.
+                // Save this modulemap path mapped to target so we can later wire it up for its dependencies.
                 modulesToModuleMap[target] = (moduleMapPath, isGenerated)
             }
         }

@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -62,23 +64,20 @@ public struct TargetSourcesBuilder {
         target: TargetDescription,
         path: AbsolutePath,
         defaultLocalization: String?,
-        additionalFileRules: [FileRuleDescription] = [],
-        toolsVersion: ToolsVersion = .currentToolsVersion,
+        additionalFileRules: [FileRuleDescription],
+        toolsVersion: ToolsVersion,
         fileSystem: FileSystem,
         observabilityScope: ObservabilityScope
     ) {
         self.packageIdentity = packageIdentity
         self.packageKind = packageKind
-        //self.packageLocation = packageLocation
         self.packagePath = packagePath
         self.target = target
         self.defaultLocalization = defaultLocalization
         self.targetPath = path
-        // In version 5.4 and earlier, SwiftPM did not support `additionalFileRules` and always implicitly included XCBuild file types.
-        let actualAdditionalRules = (toolsVersion <= ToolsVersion.v5_4 ? FileRuleDescription.xcbuildFileTypes : additionalFileRules)
-        self.rules = FileRuleDescription.builtinRules + actualAdditionalRules
+        self.rules = Self.rules(additionalFileRules: additionalFileRules, toolsVersion: toolsVersion)
         self.toolsVersion = toolsVersion
-        let excludedPaths = target.exclude.map{ path.appending(RelativePath($0)) }
+        let excludedPaths = target.exclude.map { AbsolutePath($0, relativeTo: path) }
         self.excludedPaths = Set(excludedPaths)
         self.opaqueDirectoriesExtensions = FileRuleDescription.opaqueDirectoriesExtensions.union(
             additionalFileRules.reduce(into: Set<String>(), { partial, item in
@@ -93,7 +92,7 @@ public struct TargetSourcesBuilder {
             return metadata
         }
 
-        let declaredSources = target.sources?.map{ path.appending(RelativePath($0)) }
+        let declaredSources = target.sources?.map { AbsolutePath($0, relativeTo: path) }
         if let declaredSources = declaredSources {
             // Diagnose duplicate entries.
             let duplicates = declaredSources.spm_findDuplicateElements()
@@ -122,6 +121,12 @@ public struct TargetSourcesBuilder {
       #if DEBUG
         validateRules(self.rules)
       #endif
+    }
+
+    private static func rules(additionalFileRules: [FileRuleDescription], toolsVersion: ToolsVersion) -> [FileRuleDescription] {
+        // In version 5.4 and earlier, SwiftPM did not support `additionalFileRules` and always implicitly included XCBuild file types.
+        let actualAdditionalRules = (toolsVersion <= .v5_4 ? FileRuleDescription.xcbuildFileTypes : additionalFileRules)
+        return FileRuleDescription.builtinRules + actualAdditionalRules
     }
 
     @discardableResult
@@ -172,7 +177,6 @@ public struct TargetSourcesBuilder {
         diagnoseConflictingResources(in: resources)
         diagnoseCopyConflictsWithLocalizationDirectories(in: resources)
         diagnoseLocalizedAndUnlocalizedVariants(in: resources)
-        diagnoseMissingDevelopmentRegionResource(in: resources)
         diagnoseInfoPlistConflicts(in: resources)
         diagnoseInvalidResource(in: target.resources)
 
@@ -185,26 +189,35 @@ public struct TargetSourcesBuilder {
     }
 
     /// Compute the rule for the given path.
-    private func computeRule(for path: AbsolutePath) -> FileRuleDescription.Rule {
+    private static func computeRule(for path: AbsolutePath,
+                                    toolsVersion: ToolsVersion,
+                                    additionalFileRules: [FileRuleDescription],
+                                    observabilityScope: ObservabilityScope) -> FileRuleDescription.Rule {
+        let rules = Self.rules(additionalFileRules: additionalFileRules, toolsVersion: toolsVersion)
+        // For now, we are not passing in any declared resources or sources here and instead handle any generated files automatically at the callsite. Eventually, we will want the ability to declare opinions for generated files in the manifest as well.
+        return Self.computeRule(for: path, toolsVersion: toolsVersion, rules: rules, declaredResources: [], declaredSources: nil, observabilityScope: observabilityScope)
+    }
+
+    private static func computeRule(for path: AbsolutePath, toolsVersion: ToolsVersion, rules: [FileRuleDescription], declaredResources: [(path: AbsolutePath, rule: TargetDescription.Resource.Rule)], declaredSources: [AbsolutePath]?, observabilityScope: ObservabilityScope) -> FileRuleDescription.Rule {
         var matchedRule: FileRuleDescription.Rule = .none
 
         // First match any resources explicitly declared in the manifest file.
-        for declaredResource in target.resources {
-            let resourcePath = self.targetPath.appending(RelativePath(declaredResource.path))
+        for declaredResource in declaredResources {
+            let resourcePath = declaredResource.path
             if path.isDescendantOfOrEqual(to: resourcePath) {
                 if matchedRule != .none {
-                    self.observabilityScope.emit(error: "duplicate resource rule '\(declaredResource.rule)' found for file at '\(path)'")
+                    observabilityScope.emit(error: "duplicate resource rule '\(declaredResource.rule)' found for file at '\(path)'")
                 }
                 matchedRule = .init(declaredResource.rule)
             }
         }
 
         // Match any sources explicitly declared in the manifest file.
-        if let declaredSources = self.declaredSources {
+        if let declaredSources = declaredSources {
             for sourcePath in declaredSources {
                 if path.isDescendantOfOrEqual(to: sourcePath) {
                     if matchedRule != .none {
-                        self.observabilityScope.emit(error: "duplicate rule found for file at '\(path)'")
+                        observabilityScope.emit(error: "duplicate rule found for file at '\(path)'")
                     }
 
                     // Check for header files as they're allowed to be mixed with sources.
@@ -231,10 +244,10 @@ public struct TargetSourcesBuilder {
             let effectiveRules: [FileRuleDescription] = {
                 // Don't automatically match compile rules if target's sources are
                 // explicitly declared in the package manifest.
-                if target.sources != nil {
-                    return self.rules.filter { $0.rule != .compile }
+                if declaredSources != nil {
+                    return rules.filter { $0.rule != .compile }
                 }
-                return self.rules
+                return rules
             }()
 
             if let needle = effectiveRules.first(where: { $0.match(path: path, toolsVersion: toolsVersion) }) {
@@ -247,8 +260,13 @@ public struct TargetSourcesBuilder {
         return matchedRule
     }
 
+    private func computeRule(for path: AbsolutePath) -> FileRuleDescription.Rule {
+        let declaredResources = target.resources.map { (path: AbsolutePath($0.path, relativeTo: self.targetPath), rule: $0.rule) }
+        return Self.computeRule(for: path, toolsVersion: toolsVersion, rules: rules, declaredResources: declaredResources, declaredSources: declaredSources, observabilityScope: observabilityScope)
+    }
+
     /// Returns the `Resource` file associated with a file and a particular rule, if there is one.
-    private func resource(for path: AbsolutePath, with rule: FileRuleDescription.Rule) -> Resource? {
+    private static func resource(for path: AbsolutePath, with rule: FileRuleDescription.Rule, defaultLocalization: String?, targetName: String, targetPath: AbsolutePath, observabilityScope: ObservabilityScope) -> Resource? {
         switch rule {
         case .compile, .header, .none, .modulemap, .ignored:
             return nil
@@ -275,7 +293,7 @@ public struct TargetSourcesBuilder {
             // If a resource is both inside a localization directory and has an explicit localization, it's ambiguous.
             guard implicitLocalization == nil || explicitLocalization == nil else {
                 let relativePath = path.relative(to: targetPath)
-                self.observabilityScope.emit(.localizationAmbiguity(path: relativePath, targetName: target.name))
+                observabilityScope.emit(.localizationAmbiguity(path: relativePath, targetName: targetName))
                 return nil
             }
 
@@ -283,6 +301,10 @@ public struct TargetSourcesBuilder {
         case .copy:
             return Resource(rule: .copy, path: path)
         }
+    }
+
+    private func resource(for path: AbsolutePath, with rule: FileRuleDescription.Rule) -> Resource? {
+        return Self.resource(for: path, with: rule, defaultLocalization: defaultLocalization, targetName: target.name, targetPath: targetPath, observabilityScope: observabilityScope)
     }
 
     private func diagnoseConflictingResources(in resources: [Resource]) {
@@ -322,24 +344,6 @@ public struct TargetSourcesBuilder {
         }
     }
 
-    private func diagnoseMissingDevelopmentRegionResource(in resources: [Resource]) {
-        // We can't diagnose anything here without a default localization set.
-        guard let defaultLocalization = self.defaultLocalization else {
-            return
-        }
-
-        let localizedResources = resources.lazy.filter({ $0.localization != nil && $0.localization != "Base" })
-        let resourcesByBasename = Dictionary(grouping: localizedResources, by: { $0.path.basename })
-        for (basename, resources) in resourcesByBasename {
-            if !resources.contains(where: { $0.localization == defaultLocalization }) {
-                self.observabilityScope.emit(.missingDefaultLocalizationResource(
-                    resource: basename,
-                    targetName: target.name,
-                    defaultLocalization: defaultLocalization))
-            }
-        }
-    }
-
     private func diagnoseInfoPlistConflicts(in resources: [Resource]) {
         for resource in resources {
             if resource.destination == RelativePath("Info.plist") {
@@ -352,7 +356,7 @@ public struct TargetSourcesBuilder {
 
     private func diagnoseInvalidResource(in resources: [TargetDescription.Resource]) {
         resources.forEach { resource in
-            let resourcePath = self.targetPath.appending(RelativePath(resource.path))
+            let resourcePath = AbsolutePath(resource.path, relativeTo: self.targetPath)
             if let message = validTargetPath(at: resourcePath), self.packageKind.emitAuthorWarnings {
                 let warning = "Invalid Resource '\(resource.path)': \(message)."
                 self.observabilityScope.emit(warning: warning)
@@ -441,7 +445,7 @@ public struct TargetSourcesBuilder {
 
             // Check if the directory is marked to be copied.
             let directoryMarkedToBeCopied = target.resources.contains{ resource in
-                let resourcePath = self.targetPath.appending(RelativePath(resource.path))
+                let resourcePath = AbsolutePath(resource.path, relativeTo: self.targetPath)
                 if resource.rule == .copy && resourcePath == path {
                     return true
                 }
@@ -471,6 +475,49 @@ public struct TargetSourcesBuilder {
         }
 
         return contents
+    }
+
+    public static func computeContents(for generatedFiles: [AbsolutePath], toolsVersion: ToolsVersion, additionalFileRules: [FileRuleDescription], defaultLocalization: String?, targetName: String, targetPath: AbsolutePath, observabilityScope: ObservabilityScope) -> (sources: [AbsolutePath], resources: [Resource]) {
+        var sources = [AbsolutePath]()
+        var resources = [Resource]()
+
+        generatedFiles.forEach { absPath in
+            // 5.6 handled treated all generated files as sources.
+            if toolsVersion <= .v5_6 {
+                sources.append(absPath)
+                return
+            }
+
+            var rule = Self.computeRule(for: absPath, toolsVersion: toolsVersion, additionalFileRules: additionalFileRules, observabilityScope: observabilityScope)
+
+            // If we did not find a rule for a generated file, we treat it as to be processed for now. Eventually, we should handle generated files the same as other files and require explicit handling in the manifest for unknown types.
+            if rule == .none {
+                rule = .processResource(localization: .none)
+            }
+
+            switch rule {
+            case .compile:
+                if absPath.extension == "swift" {
+                    sources.append(absPath)
+                } else {
+                    observabilityScope.emit(warning: "Only Swift is supported for generated plugin source files at this time: \(absPath)")
+                }
+            case .copy, .processResource:
+                if let resource = Self.resource(for: absPath, with: rule, defaultLocalization: defaultLocalization, targetName: targetName, targetPath: targetPath, observabilityScope: observabilityScope) {
+                    resources.append(resource)
+                } else {
+                    // If this is reached, `TargetSourcesBuilder` already emitted a diagnostic, so we can ignore this case here.
+                }
+            case .header:
+                observabilityScope.emit(warning: "Headers generated by plugins are not supported at this time: \(absPath)")
+            case .modulemap:
+                observabilityScope.emit(warning: "Module maps generated by plugins are not supported at this time: \(absPath)")
+            case .ignored, .none:
+                break
+            }
+        }
+
+        return (sources, resources)
     }
 }
 

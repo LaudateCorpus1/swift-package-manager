@@ -1,23 +1,26 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 /// Represents system package providers.
 public enum SystemPackageProviderDescription: Equatable, Codable {
     case brew([String])
     case apt([String])
     case yum([String])
+    case nuget([String])
 }
 
 extension SystemPackageProviderDescription {
     private enum CodingKeys: String, CodingKey {
-        case brew, apt, yum
+        case brew, apt, yum, nuget
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -31,6 +34,9 @@ extension SystemPackageProviderDescription {
             try unkeyedContainer.encode(a1)
         case let .yum(a1):
             var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .yum)
+            try unkeyedContainer.encode(a1)
+        case let .nuget(a1):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .nuget)
             try unkeyedContainer.encode(a1)
         }
     }
@@ -53,6 +59,10 @@ extension SystemPackageProviderDescription {
             var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
             let a1 = try unkeyedValues.decode([String].self)
             self = .yum(a1)
+        case .nuget:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            let a1 = try unkeyedValues.decode([String].self)
+            self = .nuget(a1)
         }
     }
 }

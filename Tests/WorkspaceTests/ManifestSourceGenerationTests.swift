@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2020 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2020-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import PackageGraph
@@ -32,22 +34,25 @@ class ManifestSourceGenerationTests: XCTestCase {
             let observability = ObservabilitySystem.makeForTesting()
 
             // Write the original manifest file contents, and load it.
-            try fs.writeFileContents(packageDir.appending(component: Manifest.filename), bytes: ByteString(encodingAsUTF8: manifestContents))
-            let manifestLoader = ManifestLoader(toolchain: ToolchainConfiguration.default)
+            let manifestPath = packageDir.appending(component: Manifest.filename)
+            try fs.writeFileContents(manifestPath, string: manifestContents)
+            let manifestLoader = ManifestLoader(toolchain: UserToolchain.default)
             let identityResolver = DefaultIdentityResolver()
             let manifest = try tsc_await {
-                manifestLoader.load(at: packageDir,
-                                    packageIdentity: .plain("Root"),
-                                    packageKind: .root(packageDir),
-                                    packageLocation: packageDir.pathString,
-                                    version: nil,
-                                    revision: nil,
-                                    toolsVersion: toolsVersion,
-                                    identityResolver: identityResolver,
-                                    fileSystem: fs,
-                                    observabilityScope: observability.topScope,
-                                    on: .global(),
-                                    completion: $0)
+                manifestLoader.load(
+                    manifestPath: manifestPath,
+                    manifestToolsVersion: toolsVersion,
+                    packageIdentity: .plain("Root"),
+                    packageKind: .root(packageDir),
+                    packageLocation: packageDir.pathString,
+                    packageVersion: nil,
+                    identityResolver: identityResolver,
+                    fileSystem: fs,
+                    observabilityScope: observability.topScope,
+                    delegateQueue: .sharedConcurrent,
+                    callbackQueue: .sharedConcurrent,
+                    completion: $0
+                )
             }
 
             XCTAssertNoDiagnostics(observability.diagnostics)
@@ -62,20 +67,22 @@ class ManifestSourceGenerationTests: XCTestCase {
             XCTAssertMatch(newContents, .prefix("// swift-tools-version:\(versionSpacing)\(toolsVersion.major).\(toolsVersion.minor)"))
 
             // Write out the generated manifest to replace the old manifest file contents, and load it again.
-            try fs.writeFileContents(packageDir.appending(component: Manifest.filename), bytes: ByteString(encodingAsUTF8: newContents))
+            try fs.writeFileContents(manifestPath, string: newContents)
             let newManifest = try tsc_await {
-                manifestLoader.load(at: packageDir,
-                                    packageIdentity: .plain("Root"),
-                                    packageKind: .root(packageDir),
-                                    packageLocation: packageDir.pathString,
-                                    version: nil,
-                                    revision: nil,
-                                    toolsVersion: toolsVersion,
-                                    identityResolver: identityResolver,
-                                    fileSystem: fs,
-                                    observabilityScope: observability.topScope,
-                                    on: .global(),
-                                    completion: $0)
+                manifestLoader.load(
+                    manifestPath: manifestPath,
+                    manifestToolsVersion: toolsVersion,
+                    packageIdentity: .plain("Root"),
+                    packageKind: .root(packageDir),
+                    packageLocation: packageDir.pathString,
+                    packageVersion: nil,
+                    identityResolver: identityResolver,
+                    fileSystem: fs,
+                    observabilityScope: observability.topScope,
+                    delegateQueue: .sharedConcurrent,
+                    callbackQueue: .sharedConcurrent,
+                    completion: $0
+                )
             }
 
             XCTAssertNoDiagnostics(observability.diagnostics)
@@ -430,7 +437,7 @@ class ManifestSourceGenerationTests: XCTestCase {
         let manifest = Manifest.createRootManifest(
             name: "thisPkg",
             path: .init("/thisPkg"),
-            toolsVersion: .vNext,
+            toolsVersion: .v5_7,
             dependencies: [
                 .localSourceControl(path: .init("/fooPkg"), requirement: .upToNextMajor(from: "1.0.0")),
                 .localSourceControl(path: .init("/barPkg"), requirement: .upToNextMajor(from: "2.0.0")),

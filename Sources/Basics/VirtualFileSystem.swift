@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Foundation
 import TSCBasic
@@ -28,7 +30,7 @@ fileprivate enum DirectoryNode: Codable {
         switch self {
         case .directory(let name, _, _): return name
         case .file(let name, _, _, _): return name
-        case .root(_): return "/"
+        case .root(_): return AbsolutePath.root.pathString
         }
     }
 
@@ -130,7 +132,8 @@ public class VirtualFileSystem: FileSystem {
 
     private func findNode(_ path: AbsolutePath, followSymlink: Bool) -> DirectoryNode? {
         var current: DirectoryNode? = self.root
-        for component in path.components.dropFirst() {
+        for component in path.components {
+            if component == AbsolutePath.root.pathString { continue }
             guard followSymlink, current?.isSymlink == false else { return nil }
             current = current?.children.first(where: { $0.name == component })
         }
@@ -181,11 +184,11 @@ public class VirtualFileSystem: FileSystem {
         throw Errors.readOnlyFileSystem
     }
 
-    public var homeDirectory = AbsolutePath("/")
+    public var homeDirectory = AbsolutePath.root
 
     public var cachesDirectory: AbsolutePath? = nil
 
-    public var tempDirectory = AbsolutePath("/")
+    public var tempDirectory = AbsolutePath.root
 
     public func createSymbolicLink(_ path: AbsolutePath, pointingAt destination: AbsolutePath, relative: Bool) throws {
         throw Errors.readOnlyFileSystem

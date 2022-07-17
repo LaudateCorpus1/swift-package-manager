@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import TSCBasic
@@ -16,6 +18,9 @@ import struct TSCUtility.PolymorphicCodableArray
 public class Product: Codable {
     /// The name of the product.
     public let name: String
+
+    /// Fully qualified name for this product: package ID + name of this product
+    public let ID: String
 
     /// The type of product to create.
     public let type: ProductType
@@ -33,7 +38,7 @@ public class Product: Codable {
     /// The suffix for REPL product name.
     public static let replProductSuffix: String = "__REPL"
 
-    public init(name: String, type: ProductType, targets: [Target], testManifest: AbsolutePath? = nil) throws {
+    public init(package: PackageIdentity, name: String, type: ProductType, targets: [Target], testManifest: AbsolutePath? = nil) throws {
         guard !targets.isEmpty else {
             throw InternalError("Targets cannot be empty")
         }
@@ -49,6 +54,7 @@ public class Product: Codable {
         }
         self.name = name
         self.type = type
+        self.ID = package.description.lowercased() + "_" + name
         self._targets = .init(wrappedValue: targets)
         self.testManifest = testManifest
     }
@@ -104,9 +110,9 @@ public enum ProductType: Equatable, Hashable {
 
 /// The products requested of a package.
 ///
-/// Any product which matches the filter will be used for dependency resolution, whereas unrequested products will be ingored.
+/// Any product which matches the filter will be used for dependency resolution, whereas unrequested products will be ignored.
 ///
-/// Requested products need not actually exist in the package. Under certain circumstances, the resolver may request names whose package of origin are unknown. The intended package will recognize and fullfill the request; packages that do not know what it is will simply ignore it.
+/// Requested products need not actually exist in the package. Under certain circumstances, the resolver may request names whose package of origin are unknown. The intended package will recognize and fulfill the request; packages that do not know what it is will simply ignore it.
 public enum ProductFilter: Equatable, Hashable {
 
     /// All products, targets, and tests are requested.
@@ -180,11 +186,11 @@ extension ProductType: CustomStringConvertible {
         case .library(let type):
             switch type {
             case .automatic:
-                return "automatic"
+                return "library"
             case .dynamic:
-                return "dynamic"
+                return "dynamic library"
             case .static:
-                return "static"
+                return "static library"
             }
         case .plugin:
             return "plugin"

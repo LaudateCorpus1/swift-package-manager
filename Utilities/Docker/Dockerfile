@@ -1,4 +1,4 @@
-# This source file is part of the Swift.org open source project
+# This source file is part of the Swift open source project
 #
 # Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
@@ -24,9 +24,11 @@ ENV LANGUAGE en_US.UTF-8
 #---------------------
 
 RUN apt-get update && apt-get install -y \
-  sqlite3 \
+  git \
   libsqlite3-dev \
-  libncurses5-dev
+  libncurses5-dev \
+  sqlite3 \
+  zip
 
 # Bootstrap script dependencies
 #------------------------------
@@ -38,6 +40,6 @@ RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/nul
 RUN apt-add-repository "deb https://apt.kitware.com/ubuntu/ $ubuntu_version main"
 
 RUN apt-get install -y \
-  python \
+  python3 \
   cmake \
   ninja-build

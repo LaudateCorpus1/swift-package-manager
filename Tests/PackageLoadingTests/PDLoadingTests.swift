@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import PackageLoading
@@ -16,7 +18,7 @@ import TSCBasic
 import XCTest
 
 class PackageDescriptionLoadingTests: XCTestCase, ManifestLoaderDelegate {
-    lazy var manifestLoader = ManifestLoader(toolchain: ToolchainConfiguration.default, delegate: self)
+    lazy var manifestLoader = ManifestLoader(toolchain: UserToolchain.default, delegate: self)
     var parsedManifest = ThreadSafeBox<AbsolutePath>()
     
     public func willLoad(manifest: AbsolutePath) {
@@ -30,15 +32,15 @@ class PackageDescriptionLoadingTests: XCTestCase, ManifestLoaderDelegate {
         fatalError("implement in subclass")
     }
 
-    func loadManifest(
+    func loadAndValidateManifest(
         _ contents: String,
         toolsVersion: ToolsVersion? = nil,
         packageKind: PackageReference.Kind? = nil,
         observabilityScope: ObservabilityScope,
         file: StaticString = #file,
         line: UInt = #line
-    ) throws -> Manifest {
-        try self.loadManifest(
+    ) throws -> (manifest: Manifest, diagnostics: [Basics.Diagnostic])  {
+        try self.loadAndValidateManifest(
             ByteString(encodingAsUTF8: contents),
             toolsVersion: toolsVersion,
             packageKind: packageKind,
@@ -46,14 +48,14 @@ class PackageDescriptionLoadingTests: XCTestCase, ManifestLoaderDelegate {
         )
     }
 
-    func loadManifest(
+    func loadAndValidateManifest(
         _ bytes: ByteString,
         toolsVersion: ToolsVersion? = nil,
         packageKind: PackageReference.Kind? = nil,
         observabilityScope: ObservabilityScope,
         file: StaticString = #file,
         line: UInt = #line
-    ) throws -> Manifest {
+    ) throws -> (manifest: Manifest, diagnostics: [Basics.Diagnostic]) {
         let packageKind = packageKind ?? .fileSystem(.root)
         let packagePath: AbsolutePath
         switch packageKind {
@@ -72,7 +74,7 @@ class PackageDescriptionLoadingTests: XCTestCase, ManifestLoaderDelegate {
         let manifestPath = packagePath.appending(component: Manifest.filename)
         try fileSystem.writeFileContents(manifestPath, bytes: bytes)
         let manifest = try manifestLoader.load(
-            at: packagePath,
+            manifestPath: manifestPath,
             packageKind: packageKind,
             toolsVersion: toolsVersion,
             fileSystem: fileSystem,
@@ -80,9 +82,21 @@ class PackageDescriptionLoadingTests: XCTestCase, ManifestLoaderDelegate {
         )
 
         if manifest.toolsVersion != toolsVersion {
-            XCTFail("Invalid manifest version", file: file, line: line)
+            throw StringError("Invalid manifest version")
         }
 
-        return manifest
+        let validator = ManifestValidator(manifest: manifest, sourceControlValidator: NOOPManifestSourceControlValidator(), fileSystem: fileSystem)
+        let diagnostics = validator.validate()
+        return (manifest: manifest, diagnostics: diagnostics)
+    }
+}
+
+fileprivate struct NOOPManifestSourceControlValidator: ManifestSourceControlValidator {
+    func isValidRefFormat(_ revision: String) -> Bool {
+        true
+    }
+
+    func isValidDirectory(_ path: AbsolutePath) -> Bool {
+        true
     }
 }

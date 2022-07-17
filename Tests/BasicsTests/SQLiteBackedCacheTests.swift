@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 @testable import Basics
 import TSCBasic
@@ -53,8 +55,11 @@ final class SQLiteBackedCacheTests: XCTestCase {
     }
 
     func testFileDeleted() throws {
+#if os(Windows)
+        try XCTSkipIf(true, "open file cannot be deleted on Windows")
+#endif
         try XCTSkipIf(is_tsan_enabled())
-        
+
         try testWithTemporaryDirectory { tmpPath in
             let path = tmpPath.appending(component: "test.db")
             let cache = SQLiteBackedCache<String>(tableName: "SQLiteBackedCacheTest", path: path)

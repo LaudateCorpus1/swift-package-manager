@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
- 
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
- 
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 @testable import Basics
 import TSCBasic
@@ -51,10 +53,10 @@ final class EnvironmentVariablesTests: XCTestCase {
         XCTAssertEqual(env[key], ["a", "b"].joined(separator: pathDelimiter))
         
         env.appendPath(key, value: "c")
-        XCTAssertEqual(env[key], ["a:b:c"].joined(separator: pathDelimiter))
+        XCTAssertEqual(env[key], ["a", "b", "c"].joined(separator: pathDelimiter))
         
         env.appendPath(key, value: "")
-        XCTAssertEqual(env[key], ["a:b:c"].joined(separator: pathDelimiter))
+        XCTAssertEqual(env[key], ["a", "b", "c"].joined(separator: pathDelimiter))
     }
     
     func testProcess() throws {

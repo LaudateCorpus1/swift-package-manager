@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2018-2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2018-2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Dispatch
@@ -77,7 +79,8 @@ final class TestDiscoveryCommand: CustomLLBuildCommand {
             stream <<< "\n"
             stream <<< "fileprivate extension " <<< className <<< " {" <<< "\n"
             stream <<< indent(4) <<< "@available(*, deprecated, message: \"Not actually deprecated. Marked as deprecated to allow inclusion of deprecated tests (which test deprecated functionality) without warnings\")" <<< "\n"
-            stream <<< indent(4) <<< "static let __allTests = [" <<< "\n"
+            // 'className' provides uniqueness for derived class.
+            stream <<< indent(4) <<< "static let __allTests__\(className) = [" <<< "\n"
             for method in testMethods {
                 stream <<< indent(8) <<< method.allTestsEntry <<< ",\n"
             }
@@ -93,9 +96,8 @@ final class TestDiscoveryCommand: CustomLLBuildCommand {
 
         for iterator in testsByClassNames {
             let className = iterator.key
-            stream <<< indent(8) <<< "testCase(\(className).__allTests),\n"
+            stream <<< indent(8) <<< "testCase(\(className).__allTests__\(className)),\n"
         }
-
         stream <<< """
             ]
         }
@@ -110,9 +112,7 @@ final class TestDiscoveryCommand: CustomLLBuildCommand {
         let store = try IndexStore.open(store: index, api: api)
 
         // FIXME: We can speed this up by having one llbuild command per object file.
-        let tests = try tool.inputs.flatMap {
-            try store.listTests(inObjectFile: AbsolutePath($0.name))
-        }
+        let tests = try store.listTests(in: tool.inputs.map{ AbsolutePath($0.name) })
 
         let outputs = tool.outputs.compactMap{ try? AbsolutePath(validating: $0.name) }
         let testsByModule = Dictionary(grouping: tests, by: { $0.module.spm_mangledToC99ExtendedIdentifier() })
@@ -129,7 +129,7 @@ final class TestDiscoveryCommand: CustomLLBuildCommand {
         for file in outputs {
             if maybeMainFile == nil && isMainFile(file) {
                 maybeMainFile = file
-                continue 
+                continue
             }
 
             // FIXME: This is relying on implementation detail of the output but passing the
@@ -212,6 +212,7 @@ private final class InProcessTool: Tool {
 public struct BuildDescription: Codable {
     public typealias CommandName = String
     public typealias TargetName = String
+    public typealias CommandLineFlag = String
 
     /// The Swift compiler invocation targets.
     let swiftCommands: [BuildManifest.CmdName : SwiftCompilerTool]
@@ -224,6 +225,19 @@ public struct BuildDescription: Codable {
 
     /// The map of copy commands.
     let copyCommands: [BuildManifest.CmdName: LLBuildManifest.CopyTool]
+
+    /// A flag that inidcates this build should perform a check for whether targets only import
+    /// their explicitly-declared dependencies
+    let explicitTargetDependencyImportCheckingMode: BuildParameters.TargetDependencyImportCheckingMode
+
+    /// Every target's set of dependencies.
+    let targetDependencyMap: [TargetName: [TargetName]]
+
+    /// A full swift driver command-line invocation used to dependency-scan a given Swift target
+    let swiftTargetScanArgs: [TargetName: [CommandLineFlag]]
+
+    /// A set of all targets with generated source
+    let generatedSourceTargetSet: Set<TargetName>
 
     /// The built test products.
     public let builtTestProducts: [BuiltTestProduct]
@@ -243,6 +257,28 @@ public struct BuildDescription: Codable {
         self.swiftFrontendCommands = swiftFrontendCommands
         self.testDiscoveryCommands = testDiscoveryCommands
         self.copyCommands = copyCommands
+        self.explicitTargetDependencyImportCheckingMode = plan.buildParameters.explicitTargetDependencyImportCheckingMode
+        self.targetDependencyMap = try plan.targets.reduce(into: [TargetName: [TargetName]]()) {
+            let deps = try $1.target.recursiveTargetDependencies().map { $0.c99name }
+            $0[$1.target.c99name] = deps
+        }
+        var targetCommandLines: [TargetName: [CommandLineFlag]] = [:]
+        var generatedSourceTargets: [TargetName] = []
+        for (target, description) in plan.targetMap {
+            guard case .swift(let desc) = description else {
+                continue
+            }
+            targetCommandLines[target.c99name] =
+                try desc.emitCommandLine(scanInvocation: true) + ["-driver-use-frontend-path",
+                                                                  plan.buildParameters.toolchain.swiftCompilerPath.pathString]
+            if desc.isTestDiscoveryTarget {
+                generatedSourceTargets.append(target.c99name)
+            }
+        }
+        generatedSourceTargets.append(contentsOf: plan.graph.allTargets.filter {$0.type == .plugin}
+                                                                       .map { $0.c99name })
+        self.swiftTargetScanArgs = targetCommandLines
+        self.generatedSourceTargetSet = Set(generatedSourceTargets)
         self.builtTestProducts = plan.buildProducts.filter{ $0.product.type == .test }.map { desc in
             return BuiltTestProduct(
                 productName: desc.product.name,
@@ -290,7 +326,7 @@ public final class BuildExecutionContext {
 
     /// The package structure delegate.
     let packageStructureDelegate: PackageStructureDelegate
-    
+
     /// Optional provider of build error resolution advice.
     let buildErrorAdviceProvider: BuildErrorAdviceProvider?
 
@@ -332,7 +368,7 @@ public final class BuildExecutionContext {
             // library is currently installed as `libIndexStore.dll` rather than
             // `IndexStore.dll`.  In the future, this may require a fallback
             // search, preferring `IndexStore.dll` over `libIndexStore.dll`.
-            let indexStoreLib = buildParameters.toolchain.swiftCompiler
+            let indexStoreLib = buildParameters.toolchain.swiftCompilerPath
                                     .parentDirectory
                                     .appending(component: "libIndexStore.dll")
 #else
@@ -409,6 +445,9 @@ final class BuildOperationBuildSystemDelegateHandler: LLBuildBuildSystemDelegate
 
     /// Swift parsers keyed by llbuild command name.
     private var swiftParsers: [String: SwiftCompilerOutputParser] = [:]
+
+    /// Buffer to accumulate non-swift output until command is finished
+    private var nonSwiftMessageBuffers: [String: [UInt8]] = [:]
 
     /// The build execution context.
     private let buildExecutionContext: BuildExecutionContext
@@ -519,7 +558,7 @@ final class BuildOperationBuildSystemDelegateHandler: LLBuildBuildSystemDelegate
 
         queue.async {
             self.delegate?.buildSystem(self.buildSystem, didFinishCommand: BuildSystemCommand(command))
-            
+
             if !self.logLevel.isVerbose {
                 let targetName = self.swiftParsers[command.name]?.targetName
                 self.taskTracker.commandFinished(command, result: result, targetName: targetName)
@@ -566,9 +605,7 @@ final class BuildOperationBuildSystemDelegateHandler: LLBuildBuildSystemDelegate
             swiftParser.parse(bytes: data)
         } else {
             queue.async {
-                self.progressAnimation.clear()
-                self.outputStream <<< data
-                self.outputStream.flush()
+                self.nonSwiftMessageBuffers[command.name, default: []] += data
             }
         }
     }
@@ -578,6 +615,14 @@ final class BuildOperationBuildSystemDelegateHandler: LLBuildBuildSystemDelegate
         process: ProcessHandle,
         result: CommandExtendedResult
     ) {
+        queue.async {
+            if let buffer = self.nonSwiftMessageBuffers[command.name] {
+                self.progressAnimation.clear()
+                self.outputStream <<< buffer
+                self.outputStream.flush()
+                self.nonSwiftMessageBuffers[command.name] = nil
+            }
+        }
         if result.result == .failed {
             // The command failed, so we queue up an asynchronous task to see if we have any error messages from the target to provide advice about.
             queue.async {
@@ -605,7 +650,7 @@ final class BuildOperationBuildSystemDelegateHandler: LLBuildBuildSystemDelegate
     func shouldResolveCycle(rules: [BuildKey], candidate: BuildKey, action: CycleAction) -> Bool {
         return false
     }
-    
+
     /// Invoked right before running an action taken before building.
     func preparationStepStarted(_ name: String) {
         self.outputStream <<< name <<< "\n"
@@ -717,29 +762,20 @@ fileprivate struct CommandTaskTracker {
         case .isUpToDate:
             self.totalCount -= 1
         case .isComplete:
-            break
+            self.finishedCount += 1
         @unknown default:
             assertionFailure("unhandled command status kind \(kind) for command \(command)")
             break
         }
     }
-    
+
     mutating func commandFinished(_ command: SPMLLBuild.Command, result: CommandResult, targetName: String?) {
         let progressTextValue = progressText(of: command, targetName: targetName)
         self.onTaskProgressUpdateText?(progressTextValue, targetName)
 
         self.latestFinishedText = progressTextValue
-
-        switch result {
-        case .succeeded, .skipped:
-            self.finishedCount += 1
-        case .cancelled, .failed:
-            break
-        default:
-            break
-        }
     }
-    
+
     mutating func swiftCompilerDidOutputMessage(_ message: SwiftCompilerMessage, targetName: String) {
         switch message.kind {
         case .began(let info):
@@ -764,10 +800,10 @@ fileprivate struct CommandTaskTracker {
     private func progressText(of command: SPMLLBuild.Command, targetName: String?) -> String {
         // Transforms descriptions like "Linking ./.build/x86_64-apple-macosx/debug/foo" into "Linking foo".
         if let firstSpaceIndex = command.description.firstIndex(of: " "),
-           let lastDirectorySeperatorIndex = command.description.lastIndex(of: "/")
+           let lastDirectorySeparatorIndex = command.description.lastIndex(of: "/")
         {
             let action = command.description[..<firstSpaceIndex]
-            let fileNameStartIndex = command.description.index(after: lastDirectorySeperatorIndex)
+            let fileNameStartIndex = command.description.index(after: lastDirectorySeparatorIndex)
             let fileName = command.description[fileNameStartIndex...]
 
             if let targetName = targetName {

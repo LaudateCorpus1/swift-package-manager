@@ -1,4 +1,4 @@
-# This source file is part of the Swift.org open source project
+# This source file is part of the Swift open source project
 #
 # Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
@@ -11,6 +11,7 @@ add_library(Basics
   Archiver+Zip.swift
   AuthorizationProvider.swift
   ByteString+Extensions.swift
+  Cancellator.swift
   ConcurrencyHelpers.swift
   Dictionary+Extensions.swift
   DispatchTimeInterval+Extensions.swift
@@ -22,13 +23,15 @@ add_library(Basics
   JSON+Extensions.swift
   JSONDecoder+Extensions.swift
   Netrc.swift
+  NSLock+Extensions.swift
   Observability.swift
   Sandbox.swift
   String+Extensions.swift
   Triple+Extensions.swift
   SwiftVersion.swift
   SQLiteBackedCache.swift
-  Version+Extensions.swift)
+  Version+Extensions.swift
+  WritableByteStream+Extensions.swift)
 target_link_libraries(Basics PUBLIC
   SwiftCollections::OrderedCollections
   SwiftSystem::SystemPackage

@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import XCTest
 
@@ -18,13 +20,15 @@ final class LLBuildManifestTests: XCTestCase {
     func testBasics() throws {
         var manifest = BuildManifest()
 
+        let root: AbsolutePath = AbsolutePath("/some")
+
         manifest.defaultTarget = "main"
         manifest.addPhonyCmd(
             name: "C.Foo",
             inputs: [
-                .file(AbsolutePath("/some/file.c")),
-                .directory(AbsolutePath("/some/dir")),
-                .directoryStructure(AbsolutePath("/some/dir/structure")),
+                .file(root.appending(components: "file.c")),
+                .directory(root.appending(components: "dir")),
+                .directoryStructure(root.appending(components: "dir", "structure")),
             ],
             outputs: [.virtual("Foo")]
         )
@@ -36,7 +40,9 @@ final class LLBuildManifestTests: XCTestCase {
 
         let contents: String = try fs.readFileContents(AbsolutePath("/manifest.yaml"))
 
-        XCTAssertEqual(contents, """
+        // FIXME(#5475) - use the platform's preferred separator for directory
+        // indicators
+        XCTAssertEqual(contents.replacingOccurrences(of: "\\\\", with: "\\"), """
             client:
               name: basic
             tools: {}
@@ -44,12 +50,13 @@ final class LLBuildManifestTests: XCTestCase {
               "main": ["<Foo>"]
             default: "main"
             nodes:
-              "/some/dir/structure/":
+              "\(root.appending(components: "dir", "structure"))/":
                 is-directory-structure: true
+                content-exclusion-patterns: [".git",".build"]
             commands:
               "C.Foo":
                 tool: phony
-                inputs: ["/some/file.c","/some/dir/","/some/dir/structure/"]
+                inputs: ["\(root.appending(components: "file.c"))","\(root.appending(components: "dir"))/","\(root.appending(components: "dir", "structure"))/"]
                 outputs: ["<Foo>"]
 
 
@@ -59,15 +66,17 @@ final class LLBuildManifestTests: XCTestCase {
     func testShellCommands() throws {
         var manifest = BuildManifest()
 
+        let root: AbsolutePath = AbsolutePath.root
+
         manifest.defaultTarget = "main"
         manifest.addShellCmd(
             name: "shelley",
             description: "Shelley, Keats, and Byron",
             inputs: [
-                .file(AbsolutePath("/file.in]"))
+                .file(root.appending(components: "file.in"))
             ],
             outputs: [
-                .file(AbsolutePath("/file.out"))
+                .file(root.appending(components: "file.out"))
             ],
             arguments: [
                 "foo", "bar", "baz"
@@ -87,18 +96,18 @@ final class LLBuildManifestTests: XCTestCase {
 
         let contents: String = try fs.readFileContents(AbsolutePath("/manifest.yaml"))
 
-        XCTAssertEqual(contents, """
+        XCTAssertEqual(contents.replacingOccurrences(of: "\\\\", with: "\\"), """
             client:
               name: basic
             tools: {}
             targets:
-              "main": ["/file.out"]
+              "main": ["\(root.appending(components: "file.out"))"]
             default: "main"
             commands:
               "shelley":
                 tool: shell
-                inputs: ["/file.in]"]
-                outputs: ["/file.out"]
+                inputs: ["\(root.appending(components: "file.in"))"]
+                outputs: ["\(root.appending(components: "file.out"))"]
                 description: "Shelley, Keats, and Byron"
                 args: ["foo","bar","baz"]
                 env:

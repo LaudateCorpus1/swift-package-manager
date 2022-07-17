@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import XCTest
 
@@ -57,7 +59,7 @@ class GitRepositoryTests: XCTestCase {
             let provider = GitRepositoryProvider()
             XCTAssertTrue(try provider.workingCopyExists(at: testRepoPath))
             let repoSpec = RepositorySpecifier(path: testRepoPath)
-            try! provider.fetch(repository: repoSpec, to: testCheckoutPath)
+            try provider.fetch(repository: repoSpec, to: testCheckoutPath)
 
             // Verify the checkout was made.
             XCTAssertDirectoryExists(testCheckoutPath)
@@ -111,10 +113,17 @@ class GitRepositoryTests: XCTestCase {
     /// `Inputs`, which has known commit hashes. See the `construct.sh` script
     /// contained within it for more information.
     func testRawRepository() throws {
+#if os(Windows)
+        try XCTSkipIf(true, "test repository has non-portable file names")
+#endif
         try testWithTemporaryDirectory { path in
             // Unarchive the static test repository.
             let inputArchivePath = AbsolutePath(#file).parentDirectory.appending(components: "Inputs", "TestRepo.tgz")
+#if os(Windows)
+            try systemQuietly(["tar.exe", "-x", "-v", "-C", path.pathString, "-f", inputArchivePath.pathString])
+#else
             try systemQuietly(["tar", "-x", "-v", "-C", path.pathString, "-f", inputArchivePath.pathString])
+#endif
             let testRepoPath = path.appending(component: "TestRepo")
 
             // Check hash resolution.
@@ -203,7 +212,7 @@ class GitRepositoryTests: XCTestCase {
             try localFileSystem.createDirectory(testRepoPath.appending(component: "subdir"))
             try localFileSystem.writeFileContents(testRepoPath.appending(components: "subdir", "test-file-2.txt"), bytes: test2FileContents)
             try localFileSystem.writeFileContents(testRepoPath.appending(component: "test-file-3.sh"), bytes: test3FileContents)
-            try! Process.checkNonZeroExit(args: "chmod", "+x", testRepoPath.appending(component: "test-file-3.sh").pathString)
+            try localFileSystem.chmod(.executable, path: testRepoPath.appending(component: "test-file-3.sh"), options: [])
             let testRepo = GitRepository(path: testRepoPath)
             try testRepo.stage(files: "test-file-1.txt", "subdir/test-file-2.txt", "test-file-3.sh")
             try testRepo.commit()
@@ -228,7 +237,9 @@ class GitRepositoryTests: XCTestCase {
             XCTAssert(view.isFile(AbsolutePath("/test-file-1.txt")))
             XCTAssert(!view.isSymlink(AbsolutePath("/test-file-1.txt")))
             XCTAssert(!view.isExecutableFile(AbsolutePath("/does-not-exist")))
+#if !os(Windows)
             XCTAssert(view.isExecutableFile(AbsolutePath("/test-file-3.sh")))
+#endif
 
             // Check read of a directory.
             let subdirPath = AbsolutePath("/subdir")
@@ -577,7 +588,7 @@ class GitRepositoryTests: XCTestCase {
 
             // Add something to bar.
             try localFileSystem.writeFileContents(barPath.appending(component: "bar.txt"), bytes: "hello")
-            // Add a submodule too to check for recusive submodules.
+            // Add a submodule too to check for recursive submodules.
             try systemQuietly([Git.tool, "-C", barPath.pathString, "submodule", "add", bazPath.pathString, "baz"])
             try bar.stageEverything()
             try bar.commit()
@@ -596,7 +607,7 @@ class GitRepositoryTests: XCTestCase {
             XCTAssertFileExists(fooWorkingPath.appending(components: "bar", "bar.txt"))
             XCTAssertFileExists(fooWorkingPath.appending(components: "bar", "baz", "hello.txt"))
 
-            // Sanity check.
+            // Double check.
             try fooWorkingRepo.checkout(tag: "1.0.0")
             XCTAssertNoSuchPath(fooWorkingPath.appending(components: "bar"))
         }
@@ -676,11 +687,11 @@ class GitRepositoryTests: XCTestCase {
             try makeDirectories(testRepoPath)
             initGitRepo(testRepoPath)
             let repo = GitRepository(path: testRepoPath)
-            
+
             // Create a `newMain` branch and remove `main`.
             try repo.checkout(newBranch: "newMain")
             try systemQuietly([Git.tool, "-C", testRepoPath.pathString, "branch", "-D", "main"])
-            
+
             // Change the branch name to something non-existent.
             try systemQuietly([Git.tool, "-C", testRepoPath.pathString, "symbolic-ref", "HEAD", "refs/heads/_non_existent_branch_"])
 

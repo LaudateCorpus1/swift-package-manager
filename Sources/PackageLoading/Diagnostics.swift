@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import PackageModel
@@ -54,6 +56,14 @@ extension Basics.Diagnostic {
         .error("system library product \(product) shouldn't have a type and contain only one target")
     }
 
+    static func libraryProductWithExecutableTarget(product: String, executableTargets: [String]) -> Self {
+        .error("library product '\(product)' should not contain executable targets (it has \(executableTargets.map{ "'\($0)'" }.joined(separator: ", ")))")
+    }
+
+    static func nonPluginProductWithPluginTargets(product: String, type: ProductType, pluginTargets: [String]) -> Self {
+        .error("\(type.description) product '\(product)' should not contain plugin targets (it has \(pluginTargets.map{ "'\($0)'" }.joined(separator: ", ")))")
+    }
+
     static func executableProductTargetNotExecutable(product: String, target: String) -> Self {
         .error("""
             executable product '\(product)' expects target '\(target)' to be executable; an executable target requires \
@@ -70,6 +80,10 @@ extension Basics.Diagnostic {
 
     static func executableProductWithMoreThanOneExecutableTarget(product: String) -> Self {
         .error("executable product '\(product)' should not have more than one executable target")
+    }
+
+    static func pluginNotFound(name: String) -> Self {
+        .error("no plugin named '\(name)' found")
     }
 
     static func pluginProductWithNoTargets(product: String) -> Self {
@@ -125,17 +139,6 @@ extension Basics.Diagnostic {
         .warning("""
             resource '\(resource)' in target '\(targetName)' has both localized and un-localized variants; the \
             localized variants will never be chosen
-            """)
-    }
-
-    static func missingDefaultLocalizationResource(
-        resource: String,
-        targetName: String,
-        defaultLocalization: String
-    ) -> Self {
-        .warning("""
-            resource '\(resource)' in target '\(targetName)' is missing the default localization \
-            '\(defaultLocalization)'; the default localization is used as a fallback when no other localization matches
             """)
     }
 }

@@ -1,15 +1,18 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Foundation
 import TSCBasic
+import Basics
 
 /// Specifies a repository address.
 public struct RepositorySpecifier: Hashable {
@@ -39,7 +42,7 @@ public struct RepositorySpecifier: Hashable {
 
     /// Returns the cleaned basename for the specifier.
     public var basename: String {
-        var basename = self.location.description.components(separatedBy: "/").last(where: { !$0.isEmpty }) ?? ""
+        var basename = self.url.pathComponents.dropFirst(1).last(where: { !$0.isEmpty }) ?? ""
         if basename.hasSuffix(".git") {
             basename = String(basename.dropLast(4))
         }
@@ -72,7 +75,7 @@ extension RepositorySpecifier: CustomStringConvertible {
 /// This protocol defines the lower level interface used to to access
 /// repositories. High-level clients should access repositories via a
 /// `RepositoryManager`.
-public protocol RepositoryProvider {
+public protocol RepositoryProvider: Cancellable {
     /// Fetch the complete repository at the given location to `path`.
     ///
     /// - Parameters:

@@ -1,14 +1,16 @@
-/*
- This source file is part of the Swift.org open source project
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
-
-import Commands
+@testable import Commands
 import PackageGraph
 import PackageLoading
 import PackageModel
@@ -70,6 +72,49 @@ final class BuildToolTests: CommandsTestCase {
             XCTFail("Should have failed to create Sanitizer")
         } catch let error as StringError {
             XCTAssertEqual(error.description, "valid sanitizers: address, thread, undefined, scudo")
+        }
+    }
+
+    func testImportOfMissedDepWarning() throws {
+        #if swift(<5.5)
+        try XCTSkipIf(true, "skipping because host compiler doesn't support '-import-prescan'")
+        #endif
+        // Verify the warning flow
+        try fixture(name: "Miscellaneous/ImportOfMissingDependency") { path in
+            let fullPath = resolveSymlinks(path)
+            XCTAssertThrowsError(try build(["--explicit-target-dependency-import-check=warn"], packagePath: fullPath)) { error in
+                guard case SwiftPMProductError.executionFailure(_, _, let stderr) = error else {
+                    XCTFail()
+                    return
+                }
+
+                XCTAssertTrue(stderr.contains("warning: Target A imports another target (B) in the package without declaring it a dependency."))
+            }
+        }
+
+        // Verify the error flow
+        try fixture(name: "Miscellaneous/ImportOfMissingDependency") { path in
+            let fullPath = resolveSymlinks(path)
+            XCTAssertThrowsError(try build(["--explicit-target-dependency-import-check=error"], packagePath: fullPath)) { error in
+                guard case SwiftPMProductError.executionFailure(_, _, let stderr) = error else {
+                    XCTFail()
+                    return
+                }
+
+                XCTAssertTrue(stderr.contains("error: Target A imports another target (B) in the package without declaring it a dependency."))
+            }
+        }
+
+        // Verify that the default does not run the check
+        try fixture(name: "Miscellaneous/ImportOfMissingDependency") { path in
+            let fullPath = resolveSymlinks(path)
+            XCTAssertThrowsError(try build([], packagePath: fullPath)) { error in
+                guard case SwiftPMProductError.executionFailure(_, _, let stderr) = error else {
+                    XCTFail()
+                    return
+                }
+                XCTAssertFalse(stderr.contains("warning: Target A imports another target (B) in the package without declaring it a dependency."))
+            }
         }
     }
 
@@ -315,14 +360,14 @@ final class BuildToolTests: CommandsTestCase {
         try fixture(name: "ValidLayouts/SingleModule/ExecutableNew") { fixturePath in
             // Try building using XCBuild without specifying overrides.  This should succeed, and should use the default compiler path.
             let defaultOutput = try execute(["-c", "debug", "--vv"], packagePath: fixturePath).stdout
-            XCTAssertMatch(defaultOutput, .contains(ToolchainConfiguration.default.swiftCompilerPath.pathString))
+            XCTAssertMatch(defaultOutput, .contains(UserToolchain.default.swiftCompilerPath.pathString))
 
             // Now try building using XCBuild while specifying a faulty compiler override.  This should fail.  Note that we need to set the executable to use for the manifest itself to the default one, since it defaults to SWIFT_EXEC if not provided.
             var overriddenOutput = ""
             XCTAssertThrowsCommandExecutionError(
                 try execute(
                     ["-c", "debug", "--vv"],
-                    environment: ["SWIFT_EXEC": "/usr/bin/false", "SWIFT_EXEC_MANIFEST": ToolchainConfiguration.default.swiftCompilerPath.pathString],
+                    environment: ["SWIFT_EXEC": "/usr/bin/false", "SWIFT_EXEC_MANIFEST": UserToolchain.default.swiftCompilerPath.pathString],
                     packagePath: fixturePath
                 )
             ) { error in
@@ -332,4 +377,10 @@ final class BuildToolTests: CommandsTestCase {
         }
     }
 
+    func testPrintLLBuildManifestJobGraph() throws {
+        try fixture(name: "DependencyResolution/Internal/Simple") { fixturePath in
+            let output = try execute(["--print-manifest-job-graph"], packagePath: fixturePath).stdout
+            XCTAssertMatch(output, .prefix("digraph Jobs {"))
+        }
+    }
 }

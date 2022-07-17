@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import PackageFingerprint
@@ -94,13 +96,13 @@ final class WorkspaceTests: XCTestCase {
         }
 
         // Check the load-package callbacks.
-        XCTAssertMatch(workspace.delegate.events, ["will load manifest for root package: /tmp/ws/roots/Foo"])
-        XCTAssertMatch(workspace.delegate.events, ["did load manifest for root package: /tmp/ws/roots/Foo"])
+        XCTAssertMatch(workspace.delegate.events, ["will load manifest for root package: \(sandbox.appending(components: "roots", "Foo"))"])
+        XCTAssertMatch(workspace.delegate.events, ["did load manifest for root package: \(sandbox.appending(components: "roots", "Foo"))"])
 
-        XCTAssertMatch(workspace.delegate.events, ["will load manifest for localSourceControl package: /tmp/ws/pkgs/Quix"])
-        XCTAssertMatch(workspace.delegate.events, ["did load manifest for localSourceControl package: /tmp/ws/pkgs/Quix"])
-        XCTAssertMatch(workspace.delegate.events, ["will load manifest for localSourceControl package: /tmp/ws/pkgs/Baz"])
-        XCTAssertMatch(workspace.delegate.events, ["did load manifest for localSourceControl package: /tmp/ws/pkgs/Baz"])
+        XCTAssertMatch(workspace.delegate.events, ["will load manifest for localSourceControl package: \(sandbox.appending(components: "pkgs", "Quix"))"])
+        XCTAssertMatch(workspace.delegate.events, ["did load manifest for localSourceControl package: \(sandbox.appending(components: "pkgs", "Quix"))"])
+        XCTAssertMatch(workspace.delegate.events, ["will load manifest for localSourceControl package: \(sandbox.appending(components: "pkgs", "Baz"))"])
+        XCTAssertMatch(workspace.delegate.events, ["did load manifest for localSourceControl package: \(sandbox.appending(components: "pkgs", "Baz"))"])
 
         // Close and reopen workspace.
         try workspace.closeWorkspace(resetState: false)
@@ -136,7 +138,7 @@ final class WorkspaceTests: XCTestCase {
                     manifest($0)
                 }
 
-                let manifestLoader = ManifestLoader(toolchain: ToolchainConfiguration.default)
+                let manifestLoader = ManifestLoader(toolchain: UserToolchain.default)
 
                 let sandbox = path.appending(component: "ws")
                 return try Workspace(
@@ -198,7 +200,7 @@ final class WorkspaceTests: XCTestCase {
             let workspace = try Workspace(
                 fileSystem: localFileSystem,
                 forRootPackage: pkgDir,
-                customManifestLoader: ManifestLoader(toolchain: ToolchainConfiguration.default),
+                customManifestLoader: ManifestLoader(toolchain: UserToolchain.default),
                 delegate: MockWorkspaceDelegate()
             )
             let rootInput = PackageGraphRootInput(packages: [pkgDir], dependencies: [])
@@ -213,7 +215,7 @@ final class WorkspaceTests: XCTestCase {
             XCTAssert(rootManifests.count == 0, "\(rootManifests)")
 
             testDiagnostics(observability.diagnostics) { result in
-                let diagnostic = result.check(diagnostic: .prefix("Invalid manifest\n\(path)/MyPkg/Package.swift:3:8: error: An error in MyPkg"), severity: .error)
+                let diagnostic = result.check(diagnostic: .prefix("Invalid manifest\n\(path.appending(components: "MyPkg", "Package.swift")):3:8: error: An error in MyPkg"), severity: .error)
                 XCTAssertEqual(diagnostic?.metadata?.packageIdentity, .init(path: pkgDir))
                 XCTAssertEqual(diagnostic?.metadata?.packageKind, .root(pkgDir))
             }
@@ -556,7 +558,7 @@ final class WorkspaceTests: XCTestCase {
         workspace.checkManagedDependencies { result in
             result.check(dependency: "baz", at: .checkout(.version("1.0.0")))
         }
-        XCTAssertMatch(workspace.delegate.events, [.equal("fetching package: /tmp/ws/pkgs/Baz")])
+        XCTAssertMatch(workspace.delegate.events, [.equal("fetching package: \(sandbox.appending(components: "pkgs", "Baz"))")])
         XCTAssertMatch(workspace.delegate.events, [.equal("will resolve dependencies")])
 
         // Now load with Baz as a root package.
@@ -573,9 +575,9 @@ final class WorkspaceTests: XCTestCase {
         workspace.checkManagedDependencies { result in
             result.check(notPresent: "baz")
         }
-        XCTAssertNoMatch(workspace.delegate.events, [.equal("fetching package: /tmp/ws/pkgs/Baz")])
+        XCTAssertNoMatch(workspace.delegate.events, [.equal("fetching package: \(sandbox.appending(components: "pkgs", "Baz"))")])
         XCTAssertNoMatch(workspace.delegate.events, [.equal("will resolve dependencies")])
-        XCTAssertMatch(workspace.delegate.events, [.equal("removing repo: /tmp/ws/pkgs/Baz")])
+        XCTAssertMatch(workspace.delegate.events, [.equal("removing repo: \(sandbox.appending(components: "pkgs", "Baz"))")])
     }
 
     func testGraphRootDependencies() throws {
@@ -730,8 +732,8 @@ final class WorkspaceTests: XCTestCase {
                 result.check(dependency: "a", at: .checkout(.version("1.0.1")))
                 result.check(dependency: "aa", at: .checkout(.version("2.0.0")))
             }
-            XCTAssertMatch(workspace.delegate.events, [.equal("updating repo: /tmp/ws/pkgs/A")])
-            XCTAssertMatch(workspace.delegate.events, [.equal("updating repo: /tmp/ws/pkgs/AA")])
+            XCTAssertMatch(workspace.delegate.events, [.equal("updating repo: \(sandbox.appending(components: "pkgs", "A"))")])
+            XCTAssertMatch(workspace.delegate.events, [.equal("updating repo: \(sandbox.appending(components: "pkgs", "AA"))")])
             XCTAssertEqual(workspace.delegate.events.filter { $0.hasPrefix("updating repo") }.count, 2)
         }
     }
@@ -818,20 +820,21 @@ final class WorkspaceTests: XCTestCase {
         )
 
         let bPackagePath = workspace.pathToPackage(withName: "B")
-        let cPackagePath = workspace.pathToPackage(withName: "C")
         let bRef = PackageReference.localSourceControl(identity: PackageIdentity(path: bPackagePath), path: bPackagePath)
+
+        let cPackagePath = workspace.pathToPackage(withName: "C")
         let cRef = PackageReference.localSourceControl(identity: PackageIdentity(path: cPackagePath), path: cPackagePath)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: v2],
             managedDependencies: [
-                .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath)
+                bPackagePath: .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath)
                     .edited(subpath: bPath, unmanagedPath: .none),
             ]
         )
 
         try workspace.checkPrecomputeResolution { result in
-            XCTAssertEqual(result.diagnostics.hasErrors, false, result.diagnostics.description)
+            XCTAssertNoDiagnostics(result.diagnostics)
             XCTAssertEqual(result.result.isRequired, false)
         }
     }
@@ -874,19 +877,20 @@ final class WorkspaceTests: XCTestCase {
         )
 
         let bPackagePath = workspace.pathToPackage(withName: "B")
-        let cPackagePath = workspace.pathToPackage(withName: "C")
         let bRef = PackageReference.localSourceControl(identity: PackageIdentity(path: bPackagePath), path: bPackagePath)
+
+        let cPackagePath = workspace.pathToPackage(withName: "C")
         let cRef = PackageReference.localSourceControl(identity: PackageIdentity(path: cPackagePath), path: cPackagePath)
 
         try workspace.set(
             pins: [bRef: v1],
             managedDependencies: [
-                .sourceControlCheckout(packageRef: bRef, state: v1, subpath: bPath),
+                bPackagePath: .sourceControlCheckout(packageRef: bRef, state: v1, subpath: bPath)
             ]
         )
 
         try workspace.checkPrecomputeResolution { result in
-            XCTAssertEqual(result.diagnostics.hasErrors, false)
+            XCTAssertNoDiagnostics(result.diagnostics)
             XCTAssertEqual(result.result, .required(reason: .newPackages(packages: [cRef])))
         }
     }
@@ -931,20 +935,21 @@ final class WorkspaceTests: XCTestCase {
         )
 
         let bPackagePath = workspace.pathToPackage(withName: "B")
-        let cPackagePath = workspace.pathToPackage(withName: "C")
         let bRef = PackageReference.localSourceControl(identity: PackageIdentity(path: bPackagePath), path: bPackagePath)
+
+        let cPackagePath = workspace.pathToPackage(withName: "C")
         let cRef = PackageReference.localSourceControl(identity: PackageIdentity(path: cPackagePath), path: cPackagePath)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: v1_5],
             managedDependencies: [
-                .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
-                .sourceControlCheckout(packageRef: cRef, state: v1_5, subpath: cPath),
+                bPackagePath: .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
+                cPackagePath: .sourceControlCheckout(packageRef: cRef, state: v1_5, subpath: cPath),
             ]
         )
 
         try workspace.checkPrecomputeResolution { result in
-            XCTAssertEqual(result.diagnostics.hasErrors, false)
+            XCTAssertNoDiagnostics(result.diagnostics)
             XCTAssertEqual(result.result, .required(reason: .packageRequirementChange(
                 package: cRef,
                 state: .sourceControlCheckout(v1_5),
@@ -988,12 +993,12 @@ final class WorkspaceTests: XCTestCase {
         try testWorkspace.set(
             pins: [cRef: v1_5],
             managedDependencies: [
-                .sourceControlCheckout(packageRef: cRef, state: v1_5, subpath: cPath),
+                cPackagePath: .sourceControlCheckout(packageRef: cRef, state: v1_5, subpath: cPath),
             ]
         )
 
         try testWorkspace.checkPrecomputeResolution { result in
-            XCTAssertEqual(result.diagnostics.hasErrors, false)
+            XCTAssertNoDiagnostics(result.diagnostics)
             XCTAssertEqual(result.result, .required(reason: .packageRequirementChange(
                 package: cRef,
                 state: .sourceControlCheckout(v1_5),
@@ -1041,20 +1046,21 @@ final class WorkspaceTests: XCTestCase {
         )
 
         let bPackagePath = workspace.pathToPackage(withName: "B")
-        let cPackagePath = workspace.pathToPackage(withName: "C")
         let bRef = PackageReference.localSourceControl(identity: PackageIdentity(path: bPackagePath), path: bPackagePath)
+
+        let cPackagePath = workspace.pathToPackage(withName: "C")
         let cRef = PackageReference.localSourceControl(identity: PackageIdentity(path: cPackagePath), path: cPackagePath)
 
         try workspace.set(
             pins: [bRef: v1_5],
             managedDependencies: [
-                .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
-                .fileSystem(packageRef: cRef),
+                bPackagePath: .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
+                cPackagePath: .fileSystem(packageRef: cRef),
             ]
         )
 
         try workspace.checkPrecomputeResolution { result in
-            XCTAssertEqual(result.diagnostics.hasErrors, false)
+            XCTAssertNoDiagnostics(result.diagnostics)
             XCTAssertEqual(result.result, .required(reason: .packageRequirementChange(
                 package: cRef,
                 state: .fileSystem(cPackagePath),
@@ -1102,20 +1108,21 @@ final class WorkspaceTests: XCTestCase {
         )
 
         let bPackagePath = workspace.pathToPackage(withName: "B")
-        let cPackagePath = workspace.pathToPackage(withName: "C")
         let bRef = PackageReference.localSourceControl(identity: PackageIdentity(path: bPackagePath), path: bPackagePath)
+
+        let cPackagePath = workspace.pathToPackage(withName: "C")
         let cRef = PackageReference.localSourceControl(identity: PackageIdentity(path: cPackagePath), path: cPackagePath)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: v1_5],
             managedDependencies: [
-                .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
-                .sourceControlCheckout(packageRef: cRef, state: v1_5, subpath: cPath),
+                bPackagePath: .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
+                cPackagePath: .sourceControlCheckout(packageRef: cRef, state: v1_5, subpath: cPath),
             ]
         )
 
         try workspace.checkPrecomputeResolution { result in
-            XCTAssertEqual(result.diagnostics.hasErrors, false)
+            XCTAssertNoDiagnostics(result.diagnostics)
             XCTAssertEqual(result.result, .required(reason: .packageRequirementChange(
                 package: cRef,
                 state: .sourceControlCheckout(v1_5),
@@ -1164,21 +1171,22 @@ final class WorkspaceTests: XCTestCase {
         )
 
         let bPackagePath = workspace.pathToPackage(withName: "B")
-        let cPackagePath = workspace.pathToPackage(withName: "C")
         let bRef = PackageReference.localSourceControl(identity: PackageIdentity(path: bPackagePath), path: bPackagePath)
+
+        let cPackagePath = workspace.pathToPackage(withName: "C")
         let cRef = PackageReference.localSourceControl(identity: PackageIdentity(path: cPackagePath), path: cPackagePath)
 
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: master],
             managedDependencies: [
-                .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
-                .sourceControlCheckout(packageRef: cRef, state: master, subpath: cPath),
+                bPackagePath: .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
+                cPackagePath: .sourceControlCheckout(packageRef: cRef, state: master, subpath: cPath),
             ]
         )
 
         try workspace.checkPrecomputeResolution { result in
-            XCTAssertEqual(result.diagnostics.hasErrors, false)
+            XCTAssertNoDiagnostics(result.diagnostics)
             XCTAssertEqual(result.result, .required(reason: .packageRequirementChange(
                 package: cRef,
                 state: .sourceControlCheckout(master),
@@ -1227,20 +1235,21 @@ final class WorkspaceTests: XCTestCase {
         )
 
         let bPackagePath = workspace.pathToPackage(withName: "B")
-        let cPackagePath = workspace.pathToPackage(withName: "C")
         let bRef = PackageReference.localSourceControl(identity: PackageIdentity(path: bPackagePath), path: bPackagePath)
+
+        let cPackagePath = workspace.pathToPackage(withName: "C")
         let cRef = PackageReference.localSourceControl(identity: PackageIdentity(path: cPackagePath), path: cPackagePath)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: v1_5],
             managedDependencies: [
-                .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
-                .sourceControlCheckout(packageRef: cRef, state: v1_5, subpath: cPath),
+                bPackagePath: .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
+                cPackagePath: .sourceControlCheckout(packageRef: cRef, state: v1_5, subpath: cPath),
             ]
         )
 
         try workspace.checkPrecomputeResolution { result in
-            XCTAssertEqual(result.diagnostics.hasErrors, false)
+            XCTAssertNoDiagnostics(result.diagnostics)
             XCTAssertEqual(
                 result.result,
                 .required(reason: .other("Dependencies could not be resolved because no versions of \'c\' match the requirement 2.0.0..<3.0.0 and root depends on \'c\' 2.0.0..<3.0.0."))
@@ -1289,20 +1298,21 @@ final class WorkspaceTests: XCTestCase {
         )
 
         let bPackagePath = workspace.pathToPackage(withName: "B")
-        let cPackagePath = workspace.pathToPackage(withName: "C")
         let bRef = PackageReference.localSourceControl(identity: PackageIdentity(path: bPackagePath), path: bPackagePath)
+
+        let cPackagePath = workspace.pathToPackage(withName: "C")
         let cRef = PackageReference.localSourceControl(identity: PackageIdentity(path: cPackagePath), path: cPackagePath)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: v2],
             managedDependencies: [
-                .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
-                .sourceControlCheckout(packageRef: cRef, state: v2, subpath: cPath),
+                bPackagePath: .sourceControlCheckout(packageRef: bRef, state: v1_5, subpath: bPath),
+                cPackagePath: .sourceControlCheckout(packageRef: cRef, state: v2, subpath: cPath),
             ]
         )
 
         try workspace.checkPrecomputeResolution { result in
-            XCTAssertEqual(result.diagnostics.hasErrors, false)
+            XCTAssertNoDiagnostics(result.diagnostics)
             XCTAssertEqual(result.result.isRequired, false)
         }
     }
@@ -1389,7 +1399,7 @@ final class WorkspaceTests: XCTestCase {
             ]
         )
 
-        // Do an intial run, capping at Foo at 1.0.0.
+        // Do an initial run, capping at Foo at 1.0.0.
         let deps: [MockDependency] = [
             .sourceControl(path: "./Foo", requirement: .exact("1.0.0"), products: .specific(["Foo"])),
         ]
@@ -1419,7 +1429,7 @@ final class WorkspaceTests: XCTestCase {
         workspace.checkManagedDependencies { result in
             result.check(dependency: "foo", at: .checkout(.version("1.5.0")))
         }
-        XCTAssertMatch(workspace.delegate.events, [.equal("removing repo: /tmp/ws/pkgs/Bar")])
+        XCTAssertMatch(workspace.delegate.events, [.equal("removing repo: \(sandbox.appending(components: "pkgs", "Bar"))")])
 
         // Run update again.
         // Ensure that up-to-date delegate is called when there is nothing to update.
@@ -1474,7 +1484,7 @@ final class WorkspaceTests: XCTestCase {
             ]
         )
 
-        // Do an intial run, capping at Foo at 1.0.0.
+        // Do an initial run, capping at Foo at 1.0.0.
         let deps: [MockDependency] = [
             .sourceControl(path: "./Foo", requirement: .exact("1.0.0"), products: .specific(["Foo"])),
         ]
@@ -1583,7 +1593,7 @@ final class WorkspaceTests: XCTestCase {
             ]
         )
 
-        // Do an intial run, capping at Foo at 1.0.0.
+        // Do an initial run, capping at Foo at 1.0.0.
         let deps: [MockDependency] = [
             .sourceControl(path: "./Foo", requirement: .exact("1.0.0"), products: .specific(["Foo"])),
         ]
@@ -1668,10 +1678,10 @@ final class WorkspaceTests: XCTestCase {
 
         // Drop a build artifact in data directory.
         let ws = try workspace.getOrCreateWorkspace()
-        let buildArtifact = ws.location.workingDirectory.appending(component: "test.o")
+        let buildArtifact = ws.location.scratchDirectory.appending(component: "test.o")
         try fs.writeFileContents(buildArtifact, bytes: "Hi")
 
-        // Sanity checks.
+        // Double checks.
         XCTAssert(fs.exists(buildArtifact))
         XCTAssert(fs.exists(ws.location.repositoriesCheckoutsDirectory))
 
@@ -1680,7 +1690,7 @@ final class WorkspaceTests: XCTestCase {
             // Only the build artifact should be removed.
             XCTAssertFalse(fs.exists(buildArtifact))
             XCTAssert(fs.exists(ws.location.repositoriesCheckoutsDirectory))
-            XCTAssert(fs.exists(ws.location.workingDirectory))
+            XCTAssert(fs.exists(ws.location.scratchDirectory))
 
             XCTAssertNoDiagnostics(diagnostics)
         }
@@ -1696,7 +1706,7 @@ final class WorkspaceTests: XCTestCase {
             // Only the build artifact should be removed.
             XCTAssertFalse(fs.exists(buildArtifact))
             XCTAssertFalse(fs.exists(ws.location.repositoriesCheckoutsDirectory))
-            XCTAssertFalse(fs.exists(ws.location.workingDirectory))
+            XCTAssertFalse(fs.exists(ws.location.scratchDirectory))
 
             XCTAssertNoDiagnostics(diagnostics)
         }
@@ -1742,7 +1752,7 @@ final class WorkspaceTests: XCTestCase {
 
         // Check that we can compute missing dependencies.
         try workspace.loadDependencyManifests(roots: ["Root1", "Root2"]) { manifests, diagnostics in
-            XCTAssertEqual(try! manifests.missingPackages().map { $0.locationString }.sorted(), ["/tmp/ws/pkgs/Bar", "/tmp/ws/pkgs/Foo"])
+            XCTAssertEqual(try! manifests.missingPackages().map { $0.locationString }.sorted(), [sandbox.appending(components: "pkgs", "Bar").pathString, sandbox.appending(components: "pkgs", "Foo").pathString])
             XCTAssertNoDiagnostics(diagnostics)
         }
 
@@ -1756,7 +1766,7 @@ final class WorkspaceTests: XCTestCase {
 
         // Check that we compute the correct missing dependencies.
         try workspace.loadDependencyManifests(roots: ["Root1", "Root2"]) { manifests, diagnostics in
-            XCTAssertEqual(try! manifests.missingPackages().map { $0.locationString }.sorted(), ["/tmp/ws/pkgs/Bar"])
+            XCTAssertEqual(try! manifests.missingPackages().map { $0.locationString }.sorted(), [sandbox.appending(components: "pkgs", "Bar").pathString])
             XCTAssertNoDiagnostics(diagnostics)
         }
 
@@ -2350,7 +2360,7 @@ final class WorkspaceTests: XCTestCase {
         try workspace.checkUpdate { diagnostics in
             XCTAssertNoDiagnostics(diagnostics)
         }
-        XCTAssertMatch(workspace.delegate.events, [.equal("removing repo: /tmp/ws/pkgs/Foo")])
+        XCTAssertMatch(workspace.delegate.events, [.equal("removing repo: \(sandbox.appending(components: "pkgs", "Foo"))")])
         try workspace.checkPackageGraph(deps: []) { _, diagnostics in
             XCTAssertNoDiagnostics(diagnostics)
         }
@@ -2451,8 +2461,8 @@ final class WorkspaceTests: XCTestCase {
 
         // Add entry for the edited package.
         do {
-            let barKey = MockManifestLoader.Key(url: "/tmp/ws/pkgs/Bar")
-            let editedBarKey = MockManifestLoader.Key(url: "/tmp/ws/edits/Bar")
+            let barKey = MockManifestLoader.Key(url: sandbox.appending(components: "pkgs", "Bar").pathString)
+            let editedBarKey = MockManifestLoader.Key(url: sandbox.appending(components: "edits", "Bar").pathString)
             let manifest = workspace.manifestLoader.manifests[barKey]!
             workspace.manifestLoader.manifests[editedBarKey] = manifest
         }
@@ -2630,7 +2640,7 @@ final class WorkspaceTests: XCTestCase {
         }
 
         // Check that changing the requirement to 1.5.0 triggers re-resolution.
-        let fooKey = MockManifestLoader.Key(url: "/tmp/ws/roots/Foo")
+        let fooKey = MockManifestLoader.Key(url: sandbox.appending(components: "roots", "Foo").pathString)
         let manifest = workspace.manifestLoader.manifests[fooKey]!
 
         let dependency = manifest.dependencies[0]
@@ -2730,8 +2740,8 @@ final class WorkspaceTests: XCTestCase {
 
         // Add entry for the edited package.
         do {
-            let fooKey = MockManifestLoader.Key(url: "/tmp/ws/pkgs/Foo")
-            let editedFooKey = MockManifestLoader.Key(url: "/tmp/ws/edits/Foo")
+            let fooKey = MockManifestLoader.Key(url: sandbox.appending(components: "pkgs", "Foo").pathString)
+            let editedFooKey = MockManifestLoader.Key(url: sandbox.appending(components: "edits", "Foo").pathString)
             let manifest = workspace.manifestLoader.manifests[fooKey]!
             workspace.manifestLoader.manifests[editedFooKey] = manifest
         }
@@ -2743,6 +2753,92 @@ final class WorkspaceTests: XCTestCase {
         try workspace.checkPackageGraph(roots: ["Root"], deps: deps) { _, diagnostics in
             testDiagnostics(diagnostics) { result in
                 result.check(diagnostic: .contains("'bar' 1.1.0"), severity: .error)
+            }
+        }
+    }
+
+    func testStateModified() throws {
+        let sandbox = AbsolutePath("/tmp/ws/")
+        let fs = InMemoryFileSystem()
+
+        let workspace = try MockWorkspace(
+            sandbox: sandbox,
+            fileSystem: fs,
+            roots: [
+                MockPackage(
+                    name: "Root",
+                    targets: [
+                        MockTarget(name: "Root", dependencies: [
+                            .product(name: "Foo", package: "foo"),
+                            .product(name: "Bar", package: "bar")
+                        ]),
+                    ],
+                    dependencies: [
+                        .sourceControl(url: "https://scm.com/org/foo", requirement: .upToNextMajor(from: "1.0.0")),
+                        .sourceControl(url: "https://scm.com/org/bar", requirement: .upToNextMajor(from: "1.0.0")),
+                    ]
+                ),
+            ],
+            packages: [
+                MockPackage(
+                    name: "Foo",
+                    url: "https://scm.com/org/foo",
+                    targets: [
+                        MockTarget(name: "Foo"),
+                    ],
+                    products: [
+                        MockProduct(name: "Foo", targets: ["Foo"]),
+                    ],
+                    versions: [nil, "1.0.0", "1.1.0"]
+                ),
+                MockPackage(
+                    name: "Bar",
+                    url: "https://scm.com/org/bar",
+                    targets: [
+                        MockTarget(name: "Bar"),
+                    ],
+                    products: [
+                        MockProduct(name: "Bar", targets: ["Bar"]),
+                    ],
+                    versions: ["1.0.0", "1.1.0", "1.2.0"]
+                ),
+            ]
+        )
+
+        try workspace.checkPackageGraph(roots: ["Root"], deps: []) { graph, diagnostics in
+            XCTAssertNoDiagnostics(diagnostics)
+            PackageGraphTester(graph) { result in
+                result.check(packages: "Bar", "Foo", "Root")
+            }
+        }
+
+        let underlying = try workspace.getOrCreateWorkspace()
+        let fooEditPath = sandbox.appending(components: ["edited", "foo"])
+
+        // mimic external process putting a dependency into edit mode
+        do {
+            try fs.createDirectory(fooEditPath, recursive: true)
+            try fs.writeFileContents(fooEditPath.appending(component: "Package.swift"), bytes: "// swift-tools-version: 5.6")
+
+            let fooState = underlying.state.dependencies[.plain("foo")]!
+            let externalState = WorkspaceState(fileSystem: fs, storageDirectory: underlying.state.storagePath.parentDirectory, initializationWarningHandler: { _ in })
+            externalState.dependencies.remove(fooState.packageRef.identity)
+            externalState.dependencies.add(try fooState.edited(subpath: .init("foo"), unmanagedPath: fooEditPath))
+            try externalState.save()
+        }
+
+        // reload graph after "external" change
+        try workspace.checkPackageGraph(roots: ["Root"], deps: []) { graph, diagnostics in
+            PackageGraphTester(graph) { result in
+                result.check(packages: "Bar", "Foo", "Root")
+            }
+        }
+
+        do {
+            let fooState = underlying.state.dependencies[.plain("foo")]!
+            guard case .edited(basedOn: _, unmanagedPath: fooEditPath) = fooState.state else {
+                XCTFail("'\(fooState.packageRef.identity)' dependency expected to be in edit mode, but was: \(fooState)")
+                return
             }
         }
     }
@@ -3027,7 +3123,7 @@ final class WorkspaceTests: XCTestCase {
                 result.check(targets: "Foo")
             }
             testDiagnostics(diagnostics) { result in
-                result.check(diagnostic: .contains("the package at '/tmp/ws/pkgs/Bar' cannot be accessed (/tmp/ws/pkgs/Bar doesn't exist in file system"), severity: .error)
+                result.check(diagnostic: .contains("the package at '\(sandbox.appending(components: "pkgs", "Bar"))' cannot be accessed (\(sandbox.appending(components: "pkgs", "Bar")) doesn't exist in file system"), severity: .error)
             }
         }
     }
@@ -3297,7 +3393,7 @@ final class WorkspaceTests: XCTestCase {
         }
         workspace.checkManagedDependencies { result in
             result.check(dependency: "foo", at: .local)
-            XCTAssertEqual(result.managedDependencies[.plain("foo")]?.packageRef.locationString, "/tmp/ws/pkgs/Foo")
+            XCTAssertEqual(result.managedDependencies[.plain("foo")]?.packageRef.locationString, sandbox.appending(components: "pkgs", "Foo").pathString)
         }
 
         deps = [
@@ -3308,7 +3404,7 @@ final class WorkspaceTests: XCTestCase {
         }
         workspace.checkManagedDependencies { result in
             result.check(dependency: "foo", at: .local)
-            XCTAssertEqual(result.managedDependencies[.plain("foo")]?.packageRef.locationString, "/tmp/ws/pkgs/Nested/Foo")
+            XCTAssertEqual(result.managedDependencies[.plain("foo")]?.packageRef.locationString, sandbox.appending(components: "pkgs", "Nested", "Foo").pathString)
         }
     }
 
@@ -3803,7 +3899,7 @@ final class WorkspaceTests: XCTestCase {
         // Use the same revision (hash) for "foo" to indicate they are the same
         // package despite having different URLs.
         let fooRevision = String((UUID().uuidString + UUID().uuidString).prefix(40))
-        
+
         let workspace = try MockWorkspace(
             sandbox: sandbox,
             fileSystem: fs,
@@ -4005,13 +4101,13 @@ final class WorkspaceTests: XCTestCase {
             let newState = PinsStore.PinState.version("1.0.0", revision: revision.identifier)
 
             pinsStore.pin(packageRef: fooPin.packageRef, state: newState)
-            try pinsStore.saveState(toolsVersion: ToolsVersion.currentToolsVersion)
+            try pinsStore.saveState(toolsVersion: ToolsVersion.current)
         }
 
         // Check force resolve. This should produce an error because the resolved file is out-of-date.
         workspace.checkPackageGraphFailure(roots: ["Root"], forceResolvedVersions: true) { diagnostics in
             testDiagnostics(diagnostics) { result in
-                result.check(diagnostic: "an out-of-date resolved file was detected at /tmp/ws/Package.resolved, which is not allowed when automatic dependency resolution is disabled; please make sure to update the file to reflect the changes in dependencies. Running resolver because  requirements have changed.", severity: .error)
+                result.check(diagnostic: "an out-of-date resolved file was detected at \(sandbox.appending(components: "Package.resolved")), which is not allowed when automatic dependency resolution is disabled; please make sure to update the file to reflect the changes in dependencies. Running resolver because  requirements have changed.", severity: .error)
             }
         }
         workspace.checkManagedDependencies { result in
@@ -4047,6 +4143,57 @@ final class WorkspaceTests: XCTestCase {
         workspace.checkResolved { result in
             result.check(dependency: "foo", at: .checkout(.version("1.0.0")))
             result.check(dependency: "bar", at: .checkout(.version("1.0.0")))
+        }
+    }
+
+    func testForceResolveToResolvedVersionsDuplicateLocalDependency() throws {
+        let sandbox = AbsolutePath("/tmp/ws/")
+        let fs = InMemoryFileSystem()
+
+        let workspace = try MockWorkspace(
+            sandbox: sandbox,
+            fileSystem: fs,
+            roots: [
+                MockPackage(
+                    name: "Root",
+                    targets: [
+                        MockTarget(name: "Root", dependencies: ["Foo", "Bar"]),
+                    ],
+                    products: [],
+                    dependencies: [
+                        .sourceControl(path: "./Foo", requirement: .upToNextMajor(from: "1.0.0")),
+                        .fileSystem(path: "./Bar"),
+                    ]
+                ),
+                MockPackage(
+                    name: "Bar",
+                    targets: [
+                        MockTarget(name: "Bar"),
+                    ],
+                    products: [
+                        MockProduct(name: "Bar", targets: ["Bar"]),
+                    ]
+                ),
+            ],
+            packages: [
+                MockPackage(
+                    name: "Foo",
+                    targets: [
+                        MockTarget(name: "Foo"),
+                    ],
+                    products: [
+                        MockProduct(name: "Foo", targets: ["Foo"]),
+                    ],
+                    versions: ["1.0.0", "1.2.0", "1.3.2"]
+                ),
+            ]
+        )
+
+        try workspace.checkPackageGraph(roots: ["Root", "Bar"]) { _, diagnostics in
+            XCTAssertNoDiagnostics(diagnostics)
+        }
+        try workspace.checkPackageGraph(roots: ["Root", "Bar"], forceResolvedVersions: true) { _, diagnostics in
+            XCTAssertNoDiagnostics(diagnostics)
         }
     }
 
@@ -4097,7 +4244,7 @@ final class WorkspaceTests: XCTestCase {
         workspace.checkPackageGraphFailure(roots: ["Root"], forceResolvedVersions: true) { diagnostics in
             guard let diagnostic = diagnostics.first else { return XCTFail("unexpectedly got no diagnostics") }
             // rdar://82544922 (`WorkspaceResolveReason` is non-deterministic)
-            XCTAssertTrue(diagnostic.message.hasPrefix("a resolved file is required when automatic dependency resolution is disabled and should be placed at /tmp/ws/Package.resolved. Running resolver because the following dependencies were added:"), "unexpected diagnostic message")
+            XCTAssertTrue(diagnostic.message.hasPrefix("a resolved file is required when automatic dependency resolution is disabled and should be placed at \(sandbox.appending(components: "Package.resolved")). Running resolver because the following dependencies were added:"), "unexpected diagnostic message")
         }
     }
 
@@ -4535,8 +4682,8 @@ final class WorkspaceTests: XCTestCase {
 
         // Add entry for the edited package.
         do {
-            let fooKey = MockManifestLoader.Key(url: "/tmp/ws/pkgs/Foo")
-            let editedFooKey = MockManifestLoader.Key(url: "/tmp/ws/edits/Foo")
+            let fooKey = MockManifestLoader.Key(url: sandbox.appending(components: "pkgs", "Foo").pathString)
+            let editedFooKey = MockManifestLoader.Key(url: sandbox.appending(components: "edits", "Foo").pathString)
             let manifest = workspace.manifestLoader.manifests[fooKey]!
             workspace.manifestLoader.manifests[editedFooKey] = manifest
         }
@@ -4740,7 +4887,7 @@ final class WorkspaceTests: XCTestCase {
                     versions: ["1.0.0"]
                 )
             ],
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(archiver: archiver)
         )
 
         // Create dummy xcframework/artifactbundle zip files
@@ -4782,7 +4929,7 @@ final class WorkspaceTests: XCTestCase {
             XCTAssertTrue(fs.exists(bFrameworkArchivePath))
 
             // Ensure that the temporary folders have been properly created
-            XCTAssertEqual(workspace.archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
+            XCTAssertEqual(archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/a/A1"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/a/A2"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/b/B")
@@ -4950,8 +5097,10 @@ final class WorkspaceTests: XCTestCase {
                     versions: ["1.0.0"]
                 )
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         // Create dummy xcframework directories and zip files
@@ -4984,7 +5133,6 @@ final class WorkspaceTests: XCTestCase {
         // Set an initial workspace state
         try workspace.set(
             pins: [aRef: aState],
-            managedDependencies: [],
             managedArtifacts: [
                 .init(
                     packageRef: aRef,
@@ -5105,7 +5253,9 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                archiver: archiver
+            )
         )
 
         // Create dummy zip files
@@ -5147,13 +5297,15 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                archiver: archiver
+            )
         )
 
         workspace.checkPackageGraphFailure(roots: ["Root"]) { diagnostics in
             testDiagnostics(diagnostics) { result in
-                result.checkUnordered(diagnostic: .contains("failed extracting '/tmp/ws/roots/Root/XCFrameworks/A1.zip' which is required by binary target 'A1': dummy error"), severity: .error)
-                result.checkUnordered(diagnostic: .contains("failed extracting '/tmp/ws/roots/Root/ArtifactBundles/A2.zip' which is required by binary target 'A2': dummy error"), severity: .error)
+                result.checkUnordered(diagnostic: .contains("failed extracting '\(sandbox.appending(components: "roots", "Root", "XCFrameworks", "A1.zip"))' which is required by binary target 'A1': dummy error"), severity: .error)
+                result.checkUnordered(diagnostic: .contains("failed extracting '\(sandbox.appending(components: "roots", "Root", "ArtifactBundles", "A2.zip"))' which is required by binary target 'A2': dummy error"), severity: .error)
             }
         }
     }
@@ -5181,7 +5333,6 @@ final class WorkspaceTests: XCTestCase {
                 completion(.failure(error))
             }
         })
-
         let workspace = try MockWorkspace(
             sandbox: sandbox,
             fileSystem: fs,
@@ -5202,7 +5353,9 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                archiver: archiver
+            )
         )
 
         // Create dummy zip files
@@ -5267,7 +5420,9 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 ),
             ],
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                archiver: archiver
+            )
         )
 
         let rootPath = workspace.pathToRoot(withName: "Root")
@@ -5303,7 +5458,7 @@ final class WorkspaceTests: XCTestCase {
 
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
             // Ensure that only the artifact archive with the changed checksum has been extracted
-            XCTAssertEqual(workspace.archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
+            XCTAssertEqual(archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/root/A1")
             ])
         }
@@ -5374,7 +5529,9 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                archiver: archiver
+            )
         )
 
         // create the mock archives
@@ -5393,7 +5550,7 @@ final class WorkspaceTests: XCTestCase {
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
             XCTAssertNoDiagnostics(diagnostics)
             XCTAssert(fs.isDirectory(AbsolutePath("/tmp/ws/.build/artifacts/root")))
-            XCTAssertEqual(workspace.archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
+            XCTAssertEqual(archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/root/flat"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/root/nested"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/root/nested2"),
@@ -5616,8 +5773,10 @@ final class WorkspaceTests: XCTestCase {
                     versions: ["1.0.0"]
                 ),
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
@@ -5634,14 +5793,14 @@ final class WorkspaceTests: XCTestCase {
                 ByteString([0xA2]).hexadecimalRepresentation,
                 ByteString([0xB0]).hexadecimalRepresentation,
             ])
-            XCTAssertEqual(workspace.archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
+            XCTAssertEqual(archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/a/A1"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/a/A2"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/b/B")
             ])
             XCTAssertEqual(
                 downloads.map { $0.value }.sorted(),
-                workspace.archiver.extractions.map { $0.archivePath }.sorted()
+                archiver.extractions.map { $0.archivePath }.sorted()
             )
         }
 
@@ -5829,8 +5988,10 @@ final class WorkspaceTests: XCTestCase {
                     versions: ["1.0.0"]
                 ),
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         let a4FrameworkPath = workspace.packagesDir.appending(components: "A", "XCFrameworks", "A4.xcframework")
@@ -5845,7 +6006,6 @@ final class WorkspaceTests: XCTestCase {
 
         try workspace.set(
             pins: [aRef: aState],
-            managedDependencies: [],
             managedArtifacts: [
                 .init(
                     packageRef: aRef,
@@ -5920,7 +6080,7 @@ final class WorkspaceTests: XCTestCase {
                 ByteString([0xA7]).hexadecimalRepresentation,
                 ByteString([0xB0]).hexadecimalRepresentation,
             ])
-            XCTAssertEqual(workspace.archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
+            XCTAssertEqual(archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/a/A2"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/a/A3"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/a/A7"),
@@ -5928,7 +6088,7 @@ final class WorkspaceTests: XCTestCase {
             ])
             XCTAssertEqual(
                 downloads.map { $0.value }.sorted(),
-                workspace.archiver.extractions.map { $0.archivePath }.sorted()
+                archiver.extractions.map { $0.archivePath }.sorted()
             )
         }
 
@@ -6046,8 +6206,10 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
@@ -6095,6 +6257,62 @@ final class WorkspaceTests: XCTestCase {
             downloads.map { $0.1 }.sorted(),
             archiver.extractions.map { $0.archivePath }.sorted()
         )
+    }
+
+    func testArtifactDownloadServerError() throws {
+        let fs = InMemoryFileSystem()
+        let sandbox = AbsolutePath("/tmp/ws/")
+        try fs.createDirectory(sandbox, recursive: true)
+
+        let httpClient = HTTPClient(handler: { request, _, completion in
+            do {
+                guard case .download(let fileSystem, let destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                // mimics URLSession behavior which write the file even if sends an error message
+                try fileSystem.writeFileContents(
+                    destination,
+                    bytes: "not found",
+                    atomically: true
+                )
+
+                completion(.success(.notFound()))
+            } catch {
+                completion(.failure(error))
+            }
+        })
+
+        let workspace = try MockWorkspace(
+            sandbox: sandbox,
+            fileSystem: fs,
+            roots: [
+                MockPackage(
+                    name: "Root",
+                    targets: [
+                        MockTarget(
+                            name: "A1",
+                            type: .binary,
+                            url: "https://a.com/a.zip",
+                            checksum: "a1"
+                        ),
+                    ]
+                ),
+            ],
+            binaryArtifactsManager: .init(
+                httpClient: httpClient
+            )
+        )
+
+        workspace.checkPackageGraphFailure(roots: ["Root"]) { diagnostics in
+            testDiagnostics(diagnostics) { result in
+                result.check(diagnostic: .contains("failed downloading 'https://a.com/a.zip' which is required by binary target 'A1': badResponseStatusCode(404)"), severity: .error)
+            }
+        }
+
+        // make sure artifact downloaded is deleted
+        XCTAssertTrue(fs.isDirectory(AbsolutePath("/tmp/ws/.build/artifacts/root")))
+        XCTAssertFalse(fs.exists(AbsolutePath("/tmp/ws/.build/artifacts/root/a.zip")))
     }
 
     func testArtifactDownloaderOrArchiverError() throws {
@@ -6158,8 +6376,10 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 ),
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         workspace.checkPackageGraphFailure(roots: ["Root"]) { diagnostics in
@@ -6257,9 +6477,10 @@ final class WorkspaceTests: XCTestCase {
                     dependencies: []
                 ),
             ],
-            packages: [],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         workspace.checkPackageGraphFailure(roots: ["Root"]) { diagnostics in
@@ -6271,40 +6492,35 @@ final class WorkspaceTests: XCTestCase {
     }
 
     func testArtifactChecksum() throws {
-        let sandbox = AbsolutePath("/tmp/ws/")
         let fs = InMemoryFileSystem()
+        let sandbox = AbsolutePath("/tmp/ws/")
+        try fs.createDirectory(sandbox, recursive: true)
 
-        let workspace = try MockWorkspace(
-            sandbox: sandbox,
+        let checksumAlgorithm = MockHashAlgorithm()
+        let binaryArtifactsManager = try Workspace.BinaryArtifactsManager(
             fileSystem: fs,
-            roots: [
-                MockPackage(
-                    name: "Foo",
-                    targets: [
-                        MockTarget(name: "Foo", dependencies: ["Foo"]),
-                    ],
-                    products: []
-                ),
-            ],
-            packages: []
+            authorizationProvider: .none,
+            hostToolchain: UserToolchain(destination: .hostDestination()),
+            checksumAlgorithm: checksumAlgorithm,
+            customHTTPClient: .none,
+            customArchiver: .none,
+            delegate: .none
         )
-
-        let ws = try workspace.getOrCreateWorkspace()
 
         // Checks the valid case.
         do {
             let binaryPath = sandbox.appending(component: "binary.zip")
             try fs.writeFileContents(binaryPath, bytes: ByteString([0xAA, 0xBB, 0xCC]))
 
-            let checksum = try ws.checksum(forBinaryArtifactAt: binaryPath)
-            XCTAssertEqual(workspace.checksumAlgorithm.hashes.map { $0.contents }, [[0xAA, 0xBB, 0xCC]])
+            let checksum = try binaryArtifactsManager.checksum(forBinaryArtifactAt: binaryPath)
+            XCTAssertEqual(checksumAlgorithm.hashes.map { $0.contents }, [[0xAA, 0xBB, 0xCC]])
             XCTAssertEqual(checksum, "ccbbaa")
         }
 
         // Checks an unsupported extension.
         do {
             let unknownPath = sandbox.appending(component: "unknown")
-            XCTAssertThrowsError(try ws.checksum(forBinaryArtifactAt: unknownPath), "error expected") { error in
+            XCTAssertThrowsError(try binaryArtifactsManager.checksum(forBinaryArtifactAt: unknownPath), "error expected") { error in
                 XCTAssertEqual(error as? StringError, StringError("unexpected file type; supported extensions are: zip"))
             }
         }
@@ -6312,8 +6528,8 @@ final class WorkspaceTests: XCTestCase {
         // Checks a supported extension that is not a file (does not exist).
         do {
             let unknownPath = sandbox.appending(component: "missingFile.zip")
-            XCTAssertThrowsError(try ws.checksum(forBinaryArtifactAt: unknownPath), "error expected") { error in
-                XCTAssertEqual(error as? StringError, StringError("file not found at path: /tmp/ws/missingFile.zip"))
+            XCTAssertThrowsError(try binaryArtifactsManager.checksum(forBinaryArtifactAt: unknownPath), "error expected") { error in
+                XCTAssertEqual(error as? StringError, StringError("file not found at path: \(sandbox.appending(component: "missingFile.zip"))"))
             }
         }
 
@@ -6321,8 +6537,8 @@ final class WorkspaceTests: XCTestCase {
         do {
             let unknownPath = sandbox.appending(component: "aDirectory.zip")
             try fs.createDirectory(unknownPath)
-            XCTAssertThrowsError(try ws.checksum(forBinaryArtifactAt: unknownPath), "error expected") { error in
-                XCTAssertEqual(error as? StringError, StringError("file not found at path: /tmp/ws/aDirectory.zip"))
+            XCTAssertThrowsError(try binaryArtifactsManager.checksum(forBinaryArtifactAt: unknownPath), "error expected") { error in
+                XCTAssertEqual(error as? StringError, StringError("file not found at path: \(sandbox.appending(component: "aDirectory.zip"))"))
             }
         }
     }
@@ -6346,7 +6562,9 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            httpClient: httpClient
+            binaryArtifactsManager: .init(
+                httpClient: httpClient
+            )
         )
 
         let rootPath = workspace.pathToRoot(withName: "Root")
@@ -6370,6 +6588,97 @@ final class WorkspaceTests: XCTestCase {
             testDiagnostics(diagnostics) { result in
                 result.check(diagnostic: .contains("artifact of binary target 'A' has changed checksum"), severity: .error)
             }
+        }
+    }
+
+    func testArtifactChecksumChangeURLChange() throws {
+        let sandbox = AbsolutePath("/tmp/ws/")
+        let fs = InMemoryFileSystem()
+
+        let httpClient = HTTPClient(handler: { request, _, completion in
+            do {
+                guard case .download(let fileSystem, let destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                let contents: [UInt8]
+                switch request.url.lastPathComponent {
+                case "a.zip":
+                    contents = [0xA1]
+                case "b.zip":
+                    contents = [0xB1]
+                default:
+                    throw StringError("unexpected url \(request.url)")
+                }
+
+                try fileSystem.writeFileContents(
+                    destination,
+                    bytes: ByteString(contents),
+                    atomically: true
+                )
+
+                completion(.success(.okay()))
+            } catch {
+                completion(.failure(error))
+            }
+        })
+
+        let archiver = MockArchiver(handler: { archiver, archivePath, destinationPath, completion in
+            do {
+                let name: String
+                switch archivePath.basename {
+                case "a.zip":
+                    name = "A.xcframework"
+                case "b.zip":
+                    name = "A.xcframework"
+                default:
+                    throw StringError("unexpected archivePath \(archivePath)")
+                }
+                try fs.createDirectory(destinationPath.appending(component: name), recursive: false)
+                archiver.extractions.append(MockArchiver.Extraction(archivePath: archivePath, destinationPath: destinationPath))
+                completion(.success(()))
+            } catch {
+                completion(.failure(error))
+            }
+        })
+
+        let workspace = try MockWorkspace(
+            sandbox: sandbox,
+            fileSystem: fs,
+            roots: [
+                MockPackage(
+                    name: "Root",
+                    targets: [
+                        MockTarget(name: "A", type: .binary, url: "https://a.com/b.zip",
+                                   checksum: "b1"),
+                    ]
+                )
+            ],
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
+        )
+
+        let rootPath = workspace.pathToRoot(withName: "Root")
+        let rootRef = PackageReference.root(identity: PackageIdentity(path: rootPath), path: rootPath)
+
+        try workspace.set(
+            managedArtifacts: [
+                .init(
+                    packageRef: rootRef,
+                    targetName: "A",
+                    source: .remote(
+                        url: "https://a.com/a.zip",
+                        checksum: "a1"
+                    ),
+                    path: workspace.artifactsDir.appending(components: "Root", "A.xcframework")
+                ),
+            ]
+        )
+
+        try workspace.checkPackageGraph(roots: ["Root"]) { _, diagnostics in
+            XCTAssertNoDiagnostics(diagnostics)
         }
     }
 
@@ -6442,8 +6751,10 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 ),
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
@@ -6591,8 +6902,10 @@ final class WorkspaceTests: XCTestCase {
                     versions: ["1.0.0"]
                 )
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
@@ -6604,12 +6917,12 @@ final class WorkspaceTests: XCTestCase {
             XCTAssertEqual(workspace.checksumAlgorithm.hashes.map{ $0.hexadecimalRepresentation }.sorted(), [
                 ByteString([0xA]).hexadecimalRepresentation
             ])
-            XCTAssertEqual(workspace.archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
+            XCTAssertEqual(archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/a/A")
             ])
             XCTAssertEqual(
                 downloads.map { $0.value }.sorted(),
-                workspace.archiver.extractions.map { $0.archivePath }.sorted()
+                archiver.extractions.map { $0.archivePath }.sorted()
             )
         }
 
@@ -6703,8 +7016,10 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         // write the file to test it gets deleted
@@ -6737,14 +7052,13 @@ final class WorkspaceTests: XCTestCase {
         let sandbox = AbsolutePath("/tmp/ws/")
         let fs = InMemoryFileSystem()
 
-        // this has knowledge of the expected behavior, we can also make this configurable
-        let maxConcurrentRequests = Concurrency.maxOperations
-
+        let maxConcurrentRequests = 2
         var concurrentRequests = 0
-        let concurrentRequestsLock = Lock()
+        let concurrentRequestsLock = NSLock()
 
-        // returns a dummy zipfile for the requested artifact
-        let httpClient = HTTPClient(handler: { request, _, completion in
+        var configuration = HTTPClient.Configuration()
+        configuration.maxConcurrentRequests = maxConcurrentRequests
+        let httpClient = HTTPClient(configuration: configuration, handler: { request, _, completion in
             defer {
                 concurrentRequestsLock.withLock {
                     concurrentRequests -= 1
@@ -6763,6 +7077,7 @@ final class WorkspaceTests: XCTestCase {
                     }
                 }
 
+                // returns a dummy zipfile for the requested artifact
                 try fileSystem.writeFileContents(
                     destination,
                     bytes: [0x01],
@@ -6824,8 +7139,10 @@ final class WorkspaceTests: XCTestCase {
                 ),
             ],
             packages: packages,
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         try workspace.checkPackageGraph(roots: ["App"]) { graph, diagnostics in
@@ -6848,19 +7165,19 @@ final class WorkspaceTests: XCTestCase {
 
         }
     }
-    
+
     func testArtifactDownloadStripFirstComponent() throws {
         let sandbox = AbsolutePath("/tmp/ws/")
         let fs = InMemoryFileSystem()
         let downloads = ThreadSafeKeyValueStore<URL, AbsolutePath>()
-        
+
         // returns a dummy zipfile for the requested artifact
         let httpClient = HTTPClient(handler: { request, _, completion in
             do {
                 guard case .download(let fileSystem, let destination) = request.kind else {
                     throw StringError("invalid request \(request.kind)")
                 }
-                
+
                 let contents: [UInt8]
                 switch request.url.lastPathComponent {
                 case "flat.zip":
@@ -6872,20 +7189,20 @@ final class WorkspaceTests: XCTestCase {
                 default:
                     throw StringError("unexpected url \(request.url)")
                 }
-                
+
                 try fileSystem.writeFileContents(
                     destination,
                     bytes: ByteString(contents),
                     atomically: true
                 )
-                
+
                 downloads[request.url] = destination
                 completion(.success(.okay()))
             } catch {
                 completion(.failure(error))
             }
         })
-        
+
         // create a dummy xcframework directory from the request archive
         let archiver = MockArchiver(handler: { archiver, archivePath, destinationPath, completion in
             do {
@@ -6903,13 +7220,13 @@ final class WorkspaceTests: XCTestCase {
                 default:
                     throw StringError("unexpected archivePath \(archivePath)")
                 }
-                
+
                 completion(.success(()))
             } catch {
                 completion(.failure(error))
             }
         })
-        
+
         let workspace = try MockWorkspace(
             sandbox: sandbox,
             fileSystem: fs,
@@ -6939,10 +7256,12 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 ),
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
-        
+
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
             XCTAssertNoDiagnostics(diagnostics)
             XCTAssert(fs.isDirectory(AbsolutePath("/tmp/ws/.build/artifacts/root")))
@@ -6956,17 +7275,17 @@ final class WorkspaceTests: XCTestCase {
                 ByteString([0x02]).hexadecimalRepresentation,
                 ByteString([0x03]).hexadecimalRepresentation,
             ])
-            XCTAssertEqual(workspace.archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
+            XCTAssertEqual(archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/root/flat"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/root/nested"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/root/nested2"),
             ])
             XCTAssertEqual(
                 downloads.map { $0.value }.sorted(),
-                workspace.archiver.extractions.map { $0.archivePath }.sorted()
+                archiver.extractions.map { $0.archivePath }.sorted()
             )
         }
-        
+
         workspace.checkManagedArtifacts { result in
             result.check(packageIdentity: .plain("root"),
                          targetName: "flat",
@@ -6993,6 +7312,178 @@ final class WorkspaceTests: XCTestCase {
                          path: workspace.artifactsDir.appending(components: "root", "nested2.xcframework")
             )
         }
+    }
+
+    func testArtifactMultipleExtensions() throws {
+        let sandbox = AbsolutePath("/tmp/ws/")
+        let fs = InMemoryFileSystem()
+        let downloads = ThreadSafeKeyValueStore<URL, AbsolutePath>()
+
+        // returns a dummy zipfile for the requested artifact
+        let httpClient = HTTPClient(handler: { request, _, completion in
+            do {
+                guard case .download(let fileSystem, let destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                let contents: [UInt8]
+                switch request.url.lastPathComponent {
+                case "a1.xcframework.zip":
+                    contents = [0xA1]
+                case "a2.zip.zip":
+                    contents = [0xA2]
+                default:
+                    throw StringError("unexpected url \(request.url)")
+                }
+
+                try fileSystem.writeFileContents(
+                    destination,
+                    bytes: ByteString(contents),
+                    atomically: true
+                )
+
+                downloads[request.url] = destination
+                completion(.success(.okay()))
+            } catch {
+                completion(.failure(error))
+            }
+        })
+
+        // create a dummy xcframework directory from the request archive
+        let archiver = MockArchiver(handler: { archiver, archivePath, destinationPath, completion in
+            do {
+                let name: String
+                switch archivePath.basename {
+                case "a1.xcframework.zip":
+                    name = "A1.xcframework"
+                case "a2.zip.zip":
+                    name = "A2.xcframework"
+                default:
+                    throw StringError("unexpected archivePath \(archivePath)")
+                }
+                try fs.createDirectory(destinationPath.appending(component: name), recursive: false)
+                archiver.extractions.append(MockArchiver.Extraction(archivePath: archivePath, destinationPath: destinationPath))
+                completion(.success(()))
+            } catch {
+                completion(.failure(error))
+            }
+        })
+
+        let workspace = try MockWorkspace(
+            sandbox: sandbox,
+            fileSystem: fs,
+            roots: [
+                MockPackage(
+                    name: "Root",
+                    targets: [
+                        MockTarget(
+                            name: "A1",
+                            type: .binary,
+                            url: "https://a.com/a1.xcframework.zip",
+                            checksum: "a1"
+                        ),
+                        MockTarget(
+                            name: "A2",
+                            type: .binary,
+                            url: "https://a.com/a2.zip.zip",
+                            checksum: "a2"
+                        )
+                    ],
+                    products: []
+                )
+            ],
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
+        )
+
+        try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
+            XCTAssertNoDiagnostics(diagnostics)
+            XCTAssertEqual(downloads.map { $0.key.absoluteString }.sorted(), [
+                "https://a.com/a1.xcframework.zip",
+                "https://a.com/a2.zip.zip",
+            ])
+            XCTAssertEqual(workspace.checksumAlgorithm.hashes.map{ $0.hexadecimalRepresentation }.sorted(), [
+                ByteString([0xA1]).hexadecimalRepresentation,
+                ByteString([0xA2]).hexadecimalRepresentation,
+            ])
+            XCTAssertEqual(archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
+                AbsolutePath("/tmp/ws/.build/artifacts/extract/root/A1"),
+                AbsolutePath("/tmp/ws/.build/artifacts/extract/root/A2"),
+            ])
+            XCTAssertEqual(
+                downloads.map { $0.value }.sorted(),
+                archiver.extractions.map { $0.archivePath }.sorted()
+            )
+        }
+
+        workspace.checkManagedArtifacts { result in
+            result.check(packageIdentity: .plain("root"),
+                         targetName: "A1",
+                         source: .remote(
+                            url: "https://a.com/a1.xcframework.zip",
+                            checksum: "a1"
+                         ),
+                         path: workspace.artifactsDir.appending(components: "root", "A1.xcframework")
+            )
+            result.check(packageIdentity: .plain("root"),
+                         targetName: "A2",
+                         source: .remote(
+                            url: "https://a.com/a2.zip.zip",
+                            checksum: "a2"
+                         ),
+                         path: workspace.artifactsDir.appending(components: "root", "A2.xcframework")
+            )
+        }
+    }
+
+    func testLoadRootPackageWithBinaryDependencies() throws {
+        let sandbox = AbsolutePath("/tmp/ws/")
+        let fs = InMemoryFileSystem()
+
+
+        let workspace = try MockWorkspace(
+            sandbox: sandbox,
+            fileSystem: fs,
+            roots: [
+                MockPackage(
+                    name: "Root",
+                    targets: [
+                        MockTarget(
+                            name: "A1",
+                            type: .binary,
+                            url: "https://a.com/a1.zip",
+                            checksum: "a1"
+                        ),
+                        MockTarget(
+                            name: "A2",
+                            type: .binary,
+                            url: "https://a.com/a2.xcframework.zip",
+                            checksum: "a2"
+                        ),
+                        MockTarget(
+                            name: "A3",
+                            type: .binary,
+                            url: "https://a.com/a2.zip.zip",
+                            checksum: "a3"
+                        )
+                    ],
+                    products: []
+                )
+            ]
+        )
+
+        let observability = ObservabilitySystem.makeForTesting()
+        let wks = try workspace.getOrCreateWorkspace()
+        XCTAssertNoThrow(try tsc_await {
+            wks.loadRootPackage(
+                at: workspace.rootsDir.appending(component: "Root"),
+                observabilityScope: observability.topScope,
+                completion: $0
+            )
+        })
+        XCTAssertNoDiagnostics(observability.diagnostics)
     }
 
     func testDownloadArchiveIndexFilesHappyPath() throws {
@@ -7158,8 +7649,10 @@ final class WorkspaceTests: XCTestCase {
                     versions: ["1.0.0"]
                 ),
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver,
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            ),
             checksumAlgorithm: checksumAlgorithm
         )
 
@@ -7172,7 +7665,7 @@ final class WorkspaceTests: XCTestCase {
                 "https://a.com/a2/a2.zip",
                 "https://b.com/b.zip",
             ])
-            XCTAssertEqual(workspace.checksumAlgorithm.hashes.map{ $0.hexadecimalRepresentation }.sorted(),
+            XCTAssertEqual(checksumAlgorithm.hashes.map{ $0.hexadecimalRepresentation }.sorted(),
                 (
                     ariFiles.map(ByteString.init(encodingAsUTF8:)) +
                     ariFiles.map(ByteString.init(encodingAsUTF8:)) +
@@ -7183,14 +7676,14 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 ).map{ $0.hexadecimalRepresentation }.sorted()
             )
-            XCTAssertEqual(workspace.archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
+            XCTAssertEqual(archiver.extractions.map { $0.destinationPath.parentDirectory }.sorted(), [
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/a/A1"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/a/A2"),
                 AbsolutePath("/tmp/ws/.build/artifacts/extract/b/B"),
             ])
             XCTAssertEqual(
                 downloads.map { $0.value }.sorted(),
-                workspace.archiver.extractions.map { $0.archivePath }.sorted()
+                archiver.extractions.map { $0.archivePath }.sorted()
             )
         }
 
@@ -7249,7 +7742,9 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            httpClient: httpClient
+            binaryArtifactsManager: .init(
+                httpClient: httpClient
+            )
         )
 
         workspace.checkPackageGraphFailure(roots: ["Root"]) { diagnostics in
@@ -7306,7 +7801,9 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            httpClient: httpClient
+            binaryArtifactsManager: .init(
+                httpClient: httpClient
+            )
         )
 
         workspace.checkPackageGraphFailure(roots: ["Root"]) { diagnostics in
@@ -7432,7 +7929,6 @@ final class WorkspaceTests: XCTestCase {
             }
         })
 
-
         let workspace = try MockWorkspace(
             sandbox: sandbox,
             fileSystem: fs,
@@ -7444,8 +7940,10 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            httpClient: httpClient,
-            binaryArchiver: archiver
+            binaryArtifactsManager: .init(
+                httpClient: httpClient,
+                archiver: archiver
+            )
         )
 
         workspace.checkPackageGraphFailure(roots: ["Root"]) { diagnostics in
@@ -7508,7 +8006,9 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            httpClient: httpClient
+            binaryArtifactsManager: .init(
+                httpClient: httpClient
+            )
         )
 
         workspace.checkPackageGraphFailure(roots: ["Root"]) { diagnostics in
@@ -7523,8 +8023,8 @@ final class WorkspaceTests: XCTestCase {
         let fs = InMemoryFileSystem()
 
         let hostToolchain = try UserToolchain(destination: .hostDestination())
-        let andriodTriple = try Triple("x86_64-unknown-linux-android")
-        let notHostTriple = hostToolchain.triple == andriodTriple ? .macOS : andriodTriple
+        let androidTriple = try Triple("x86_64-unknown-linux-android")
+        let notHostTriple = hostToolchain.triple == androidTriple ? .macOS : androidTriple
 
         let ari = """
         {
@@ -7568,7 +8068,9 @@ final class WorkspaceTests: XCTestCase {
                     ]
                 )
             ],
-            httpClient: httpClient
+            binaryArtifactsManager: .init(
+                httpClient: httpClient
+            )
         )
 
         workspace.checkPackageGraphFailure(roots: ["Root"]) { diagnostics in
@@ -7576,23 +8078,6 @@ final class WorkspaceTests: XCTestCase {
                 result.check(diagnostic: .contains("failed retrieving 'https://a.com/a.artifactbundleindex': No supported archive was found for '\(hostToolchain.triple.tripleString)'"), severity: .error)
             }
         }
-    }
-
-    func testAndroidCompilerFlags() throws {
-        let target = try Triple("x86_64-unknown-linux-android")
-        let sdk = AbsolutePath("/some/path/to/an/SDK.sdk")
-        let toolchainPath = AbsolutePath("/some/path/to/a/toolchain.xctoolchain")
-
-        let destination = Destination(
-            target: target,
-            sdk: sdk,
-            binDir: toolchainPath.appending(components: "usr", "bin")
-        )
-
-        XCTAssertEqual(UserToolchain.deriveSwiftCFlags(triple: target, destination: destination), [
-            // Needed when cross‐compiling for Android. 2020‐03‐01
-            "-sdk", sdk.pathString,
-        ])
     }
 
     func testDuplicateDependencyIdentityWithNameAtRoot() throws {
@@ -7649,7 +8134,7 @@ final class WorkspaceTests: XCTestCase {
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
             testDiagnostics(diagnostics) { result in
                 result.check(
-                    diagnostic: "'root' dependency on '/tmp/ws/pkgs/bar/utility' conflicts with dependency on '/tmp/ws/pkgs/foo/utility' which has the same identity 'utility'",
+                    diagnostic: "'root' dependency on '\(sandbox.appending(components: "pkgs", "bar", "utility"))' conflicts with dependency on '\(sandbox.appending(components: "pkgs", "foo", "utility"))' which has the same identity 'utility'",
                     severity: .error
                 )
             }
@@ -7710,7 +8195,7 @@ final class WorkspaceTests: XCTestCase {
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
             testDiagnostics(diagnostics) { result in
                 result.check(
-                    diagnostic: "'root' dependency on '/tmp/ws/pkgs/bar/utility' conflicts with dependency on '/tmp/ws/pkgs/foo/utility' which has the same identity 'utility'",
+                    diagnostic: "'root' dependency on '\(sandbox.appending(components: "pkgs", "bar", "utility"))' conflicts with dependency on '\(sandbox.appending(components: "pkgs", "foo", "utility"))' which has the same identity 'utility'",
                     severity: .error
                 )
             }
@@ -7771,7 +8256,7 @@ final class WorkspaceTests: XCTestCase {
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
             testDiagnostics(diagnostics) { result in
                 result.check(
-                    diagnostic: "'root' dependency on '/tmp/ws/pkgs/bar' conflicts with dependency on '/tmp/ws/pkgs/foo' which has the same explicit name 'FooPackage'",
+                    diagnostic: "'root' dependency on '\(sandbox.appending(components: "pkgs", "bar"))' conflicts with dependency on '\(sandbox.appending(components: "pkgs", "foo"))' which has the same explicit name 'FooPackage'",
                     severity: .error
                 )
             }
@@ -8115,7 +8600,7 @@ final class WorkspaceTests: XCTestCase {
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
             testDiagnostics(diagnostics) { result in
                 result.check(
-                    diagnostic: "'root' dependency on '/tmp/ws/pkgs/bar' conflicts with dependency on '/tmp/ws/pkgs/foo' which has the same explicit name 'foo'",
+                    diagnostic: "'root' dependency on '\(sandbox.appending(components: "pkgs", "bar"))' conflicts with dependency on '\(sandbox.appending(components: "pkgs", "foo"))' which has the same explicit name 'foo'",
                     severity: .error
                 )
             }
@@ -8135,7 +8620,7 @@ final class WorkspaceTests: XCTestCase {
                     targets: [
                         MockTarget(name: "RootTarget", dependencies: [
                             .product(name: "FooProduct", package: "foo"),
-                            .product(name: "BarProduct", package: "bar"),
+                            .product(name: "BarProduct", package: "foo"),
                         ]),
                     ],
                     products: [],
@@ -8175,7 +8660,7 @@ final class WorkspaceTests: XCTestCase {
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
             testDiagnostics(diagnostics) { result in
                 result.check(
-                    diagnostic: "'root' dependency on '/tmp/ws/pkgs/bar' conflicts with dependency on '/tmp/ws/pkgs/foo' which has the same explicit name 'foo'",
+                    diagnostic: "'root' dependency on '\(sandbox.appending(components: "pkgs", "bar"))' conflicts with dependency on '\(sandbox.appending(components: "pkgs", "foo"))' which has the same explicit name 'foo'",
                     severity: .error
                 )
             }
@@ -8252,7 +8737,7 @@ final class WorkspaceTests: XCTestCase {
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
             testDiagnostics(diagnostics) { result in
                 result.check(
-                    diagnostic: "'bar' dependency on '/tmp/ws/pkgs/other/utility' conflicts with dependency on '/tmp/ws/pkgs/foo/utility' which has the same identity 'utility'",
+                    diagnostic: "'bar' dependency on '\(sandbox.appending(components: "pkgs", "other", "utility"))' conflicts with dependency on '\(sandbox.appending(components: "pkgs", "foo", "utility"))' which has the same identity 'utility'",
                     severity: .error
                 )
             }
@@ -8331,7 +8816,7 @@ final class WorkspaceTests: XCTestCase {
         try workspace.checkPackageGraph(roots: ["Root"]) { graph, diagnostics in
             testDiagnostics(diagnostics) { result in
                 result.check(
-                    diagnostic: "'bar' dependency on '/tmp/ws/pkgs/other-foo/utility' conflicts with dependency on '/tmp/ws/pkgs/foo/utility' which has the same identity 'utility'. this will be escalated to an error in future versions of SwiftPM.",
+                    diagnostic: "'bar' dependency on '\(sandbox.appending(components: "pkgs", "other-foo", "utility"))' conflicts with dependency on '\(sandbox.appending(components: "pkgs", "foo", "utility"))' which has the same identity 'utility'. this will be escalated to an error in future versions of SwiftPM.",
                     severity: .warning
                 )
                 // FIXME: rdar://72940946
@@ -9146,7 +9631,7 @@ final class WorkspaceTests: XCTestCase {
                     """
             }
 
-            let manifestLoader = ManifestLoader(toolchain: ToolchainConfiguration.default)
+            let manifestLoader = ManifestLoader(toolchain: UserToolchain.default)
             let sandbox = path.appending(component: "ws")
             let workspace = try Workspace(
                 fileSystem: fs,
@@ -9174,32 +9659,36 @@ final class WorkspaceTests: XCTestCase {
             }
 
             func load(
-                at path: AbsolutePath,
+                manifestPath: AbsolutePath,
+                manifestToolsVersion: ToolsVersion,
                 packageIdentity: PackageIdentity,
                 packageKind: PackageReference.Kind,
                 packageLocation: String,
-                version: Version?,
-                revision: String?,
-                toolsVersion: ToolsVersion,
+                packageVersion: (version: Version?, revision: String?)?,
                 identityResolver: IdentityResolver,
                 fileSystem: FileSystem,
                 observabilityScope: ObservabilityScope,
-                on queue: DispatchQueue,
+                delegateQueue: DispatchQueue,
+                callbackQueue: DispatchQueue,
                 completion: @escaping (Result<Manifest, Error>) -> Void
             ) {
                 if let error = self.error {
-                    completion(.failure(error))
+                    callbackQueue.async {
+                        completion(.failure(error))
+                    }
                 } else {
-                    completion(.success(
-                        .init(
-                            displayName: packageIdentity.description,
-                            path: path,
-                            packageKind: packageKind,
-                            packageLocation: packageLocation,
-                            platforms: [],
-                            toolsVersion: toolsVersion)
-                        )
-                    )
+                    callbackQueue.async {
+                        completion(.success(
+                            Manifest(
+                                displayName: packageIdentity.description,
+                                path: manifestPath,
+                                packageKind: packageKind,
+                                packageLocation: packageLocation,
+                                platforms: [],
+                                toolsVersion: manifestToolsVersion
+                            )
+                        ))
+                    }
                 }
             }
 
@@ -9209,6 +9698,10 @@ final class WorkspaceTests: XCTestCase {
 
         let fs = InMemoryFileSystem()
         let observability = ObservabilitySystem.makeForTesting()
+
+        // write a manifest
+        try fs.writeFileContents(.root.appending(component: Manifest.filename), bytes: "")
+        try ToolsVersionSpecificationWriter.rewriteSpecification(manifestDirectory: .root, toolsVersion: .current, fileSystem: fs)
 
         do {
             // no error
@@ -9222,22 +9715,8 @@ final class WorkspaceTests: XCTestCase {
             try workspace.loadPackageGraph(rootPath: .root, observabilityScope: observability.topScope)
 
             XCTAssertNotNil(delegate.manifest)
-            XCTAssertEqual(delegate.manifestLoadingDiagnostics?.count, 0)
-        }
-
-        do {
-            // Diagnostics.fatalError
-            let delegate = MockWorkspaceDelegate()
-            let workspace = try Workspace(
-                fileSystem: fs,
-                forRootPackage: .root,
-                customManifestLoader: TestLoader(error: Diagnostics.fatalError),
-                delegate: delegate
-            )
-            try workspace.loadPackageGraph(rootPath: .root, observabilityScope: observability.topScope)
-
-            XCTAssertNil(delegate.manifest)
-            XCTAssertEqual(delegate.manifestLoadingDiagnostics?.count, 0)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            XCTAssertNoDiagnostics(delegate.manifestLoadingDiagnostics ?? [])
         }
 
         do {
@@ -9252,8 +9731,12 @@ final class WorkspaceTests: XCTestCase {
             try workspace.loadPackageGraph(rootPath: .root, observabilityScope: observability.topScope)
 
             XCTAssertNil(delegate.manifest)
-            XCTAssertEqual(delegate.manifestLoadingDiagnostics?.count, 1)
-            XCTAssertEqual(delegate.manifestLoadingDiagnostics?.first?.message, "boom")
+            testDiagnostics(delegate.manifestLoadingDiagnostics ?? []) { result in
+                result.check(diagnostic: .equal("boom"), severity: .error)
+            }
+            testDiagnostics(delegate.manifestLoadingDiagnostics ?? []) { result in
+                result.check(diagnostic: .equal("boom"), severity: .error)
+            }
         }
     }
 
@@ -9324,15 +9807,15 @@ final class WorkspaceTests: XCTestCase {
                 result.checkTarget("MyTarget2") { result in result.check(dependencies: "Bar") }
             }
         }
-        
+
         workspace.checkManagedDependencies { result in
             result.check(dependency: "foo", at: .checkout(.version("1.5.1")))
             result.check(dependency: "bar", at: .checkout(.version("2.2.0")))
         }
 
         // Check the load-package callbacks.
-        XCTAssertMatch(workspace.delegate.events, ["will load manifest for root package: /tmp/ws/roots/MyPackage"])
-        XCTAssertMatch(workspace.delegate.events, ["did load manifest for root package: /tmp/ws/roots/MyPackage"])
+        XCTAssertMatch(workspace.delegate.events, ["will load manifest for root package: \(sandbox.appending(components: "roots", "MyPackage"))"])
+        XCTAssertMatch(workspace.delegate.events, ["did load manifest for root package: \(sandbox.appending(components: "roots", "MyPackage"))"])
         XCTAssertMatch(workspace.delegate.events, ["will load manifest for remoteSourceControl package: http://localhost/org/foo"])
         XCTAssertMatch(workspace.delegate.events, ["did load manifest for remoteSourceControl package: http://localhost/org/foo"])
         XCTAssertMatch(workspace.delegate.events, ["will load manifest for remoteSourceControl package: http://localhost/org/bar"])
@@ -9441,8 +9924,8 @@ final class WorkspaceTests: XCTestCase {
         }
 
         // Check the load-package callbacks.
-        XCTAssertMatch(workspace.delegate.events, ["will load manifest for root package: /tmp/ws/roots/MyPackage"])
-        XCTAssertMatch(workspace.delegate.events, ["did load manifest for root package: /tmp/ws/roots/MyPackage"])
+        XCTAssertMatch(workspace.delegate.events, ["will load manifest for root package: \(sandbox.appending(components: "roots", "MyPackage"))"])
+        XCTAssertMatch(workspace.delegate.events, ["did load manifest for root package: \(sandbox.appending(components: "roots", "MyPackage"))"])
         XCTAssertMatch(workspace.delegate.events, ["will load manifest for remoteSourceControl package: http://localhost/org/foo"])
         XCTAssertMatch(workspace.delegate.events, ["did load manifest for remoteSourceControl package: http://localhost/org/foo"])
         XCTAssertMatch(workspace.delegate.events, ["will load manifest for remoteSourceControl package: http://localhost/org/bar"])
@@ -9525,8 +10008,8 @@ final class WorkspaceTests: XCTestCase {
         }
 
         // Check the load-package callbacks.
-        XCTAssertMatch(workspace.delegate.events, ["will load manifest for root package: /tmp/ws/roots/MyPackage"])
-        XCTAssertMatch(workspace.delegate.events, ["did load manifest for root package: /tmp/ws/roots/MyPackage"])
+        XCTAssertMatch(workspace.delegate.events, ["will load manifest for root package: \(sandbox.appending(components: "roots", "MyPackage"))"])
+        XCTAssertMatch(workspace.delegate.events, ["did load manifest for root package: \(sandbox.appending(components: "roots", "MyPackage"))"])
         XCTAssertMatch(workspace.delegate.events, ["will load manifest for registry package: org.foo"])
         XCTAssertMatch(workspace.delegate.events, ["did load manifest for registry package: org.foo"])
         XCTAssertMatch(workspace.delegate.events, ["will load manifest for registry package: org.bar"])
@@ -9635,8 +10118,8 @@ final class WorkspaceTests: XCTestCase {
         }
 
         // Check the load-package callbacks.
-        XCTAssertMatch(workspace.delegate.events, ["will load manifest for root package: /tmp/ws/roots/MyPackage"])
-        XCTAssertMatch(workspace.delegate.events, ["did load manifest for root package: /tmp/ws/roots/MyPackage"])
+        XCTAssertMatch(workspace.delegate.events, ["will load manifest for root package: \(sandbox.appending(components: "roots", "MyPackage"))"])
+        XCTAssertMatch(workspace.delegate.events, ["did load manifest for root package: \(sandbox.appending(components: "roots", "MyPackage"))"])
         XCTAssertMatch(workspace.delegate.events, ["will load manifest for registry package: org.foo"])
         XCTAssertMatch(workspace.delegate.events, ["did load manifest for registry package: org.foo"])
         XCTAssertMatch(workspace.delegate.events, ["will load manifest for registry package: org.bar"])
@@ -9660,7 +10143,7 @@ final class WorkspaceTests: XCTestCase {
                     targets: [
                         MockTarget(name: "RootTarget", dependencies: [
                             .product(name: "FooProduct", package: "foo"),
-                            .product(name: "BarProduct", package: "bar")
+                            .product(name: "BarProduct", package: "org.bar")
                         ]),
                     ],
                     products: [],
@@ -10064,7 +10547,7 @@ final class WorkspaceTests: XCTestCase {
                     targets: [
                         MockTarget(name: "RootTarget", dependencies: [
                             .product(name: "FooProduct", package: "foo"),
-                            .product(name: "BarProduct", package: "bar")
+                            .product(name: "BarProduct", package: "org.bar")
                         ]),
                     ],
                     products: [],
@@ -10338,8 +10821,8 @@ final class WorkspaceTests: XCTestCase {
                     path: "root",
                     targets: [
                         MockTarget(name: "RootTarget", dependencies: [
-                            .product(name: "FooProduct", package: "foo"),
-                            .product(name: "BarProduct", package: "bar")
+                            .product(name: "FooProduct", package: "org.foo"),
+                            .product(name: "BarProduct", package: "org.bar")
                         ]),
                     ],
                     products: [],
@@ -10481,8 +10964,8 @@ final class WorkspaceTests: XCTestCase {
                     path: "root",
                     targets: [
                         MockTarget(name: "RootTarget", dependencies: [
-                            .product(name: "FooProduct", package: "foo"),
-                            .product(name: "BarProduct", package: "bar")
+                            .product(name: "FooProduct", package: "org.foo"),
+                            .product(name: "BarProduct", package: "org.bar")
                         ]),
                     ],
                     products: [],
@@ -10613,8 +11096,8 @@ final class WorkspaceTests: XCTestCase {
                     path: "root",
                     targets: [
                         MockTarget(name: "RootTarget", dependencies: [
-                            .product(name: "FooProduct", package: "foo"),
-                            .product(name: "BarProduct", package: "bar")
+                            .product(name: "FooProduct", package: "org.foo"),
+                            .product(name: "BarProduct", package: "org.bar")
                         ]),
                     ],
                     products: [],
@@ -10778,8 +11261,8 @@ final class WorkspaceTests: XCTestCase {
                     path: "root",
                     targets: [
                         MockTarget(name: "RootTarget", dependencies: [
-                            .product(name: "FooProduct", package: "foo"),
-                            .product(name: "BarProduct", package: "bar")
+                            .product(name: "FooProduct", package: "org.foo"),
+                            .product(name: "BarProduct", package: "org.bar")
                         ]),
                     ],
                     products: [],
@@ -10927,7 +11410,7 @@ final class WorkspaceTests: XCTestCase {
                     targets: [
                         MockTarget(name: "RootTarget", dependencies: [
                             .product(name: "FooProduct", package: "foo"),
-                            .product(name: "BarProduct", package: "bar")
+                            .product(name: "BarProduct", package: "org.bar")
                         ]),
                     ],
                     products: [],
@@ -11066,6 +11549,10 @@ final class WorkspaceTests: XCTestCase {
         let fs = InMemoryFileSystem()
 
         let customFS = InMemoryFileSystem()
+        // write a manifest
+        try customFS.writeFileContents(.root.appending(component: Manifest.filename), bytes: "")
+        try ToolsVersionSpecificationWriter.rewriteSpecification(manifestDirectory: .root, toolsVersion: .current, fileSystem: customFS)
+        // write the sources
         let sourcesDir = AbsolutePath("/Sources")
         let targetDir = sourcesDir.appending(component: "Baz")
         try customFS.createDirectory(targetDir, recursive: true)
@@ -11541,7 +12028,7 @@ final class WorkspaceTests: XCTestCase {
             workspace.registryClient = registryClient
             workspace.checkPackageGraphFailure(roots: ["MyPackage"]) { diagnostics in
                 testDiagnostics(diagnostics) { result in
-                    result.check(diagnostic: .regex("failed extracting '.*/registry/downloads/org/foo/1.0.0.zip' to '.*/registry/downloads/org/foo/1.0.0': boom"), severity: .error)
+                    result.check(diagnostic: .regex("failed extracting '.*[\\\\/]registry[\\\\/]downloads[\\\\/]org[\\\\/]foo[\\\\/]1.0.0.zip' to '.*[\\\\/]registry[\\\\/]downloads[\\\\/]org[\\\\/]foo[\\\\/]1.0.0': boom"), severity: .error)
                 }
             }
         }
@@ -11623,7 +12110,7 @@ final class WorkspaceTests: XCTestCase {
                         "Content-Version": "1",
                         "Content-Type": "text/x-swift"
                     ],
-                    body: "// swift-tools-version:\(ToolsVersion.currentToolsVersion)".data(using: .utf8)
+                    body: "// swift-tools-version:\(ToolsVersion.current)".data(using: .utf8)
                 )
             ))
         }

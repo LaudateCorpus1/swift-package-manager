@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright 2020-2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2020-2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import ArgumentParser
 import Basics
@@ -35,9 +37,9 @@ extension CollectionsError: CustomStringConvertible {
         case .unsigned:
             return "The collection is not signed. If you would still like to add it please rerun 'add' with '--trust-unsigned'."
         case .cannotVerifySignature:
-            return "The collection's signature cannot be verified due to missing configuration. Please refer to documentations on how to set up trusted root certificates or rerun 'add' with '--skip-signature-check'."
+            return "The collection's signature cannot be verified due to missing configuration. Please refer to documentations on how to set up trusted root certificates or rerun command with '--skip-signature-check'."
         case .invalidSignature:
-            return "The collection's signature is invalid. If you would still like to add it please rerun 'add' with '--skip-signature-check'."
+            return "The collection's signature is invalid. If you would like to continue please rerun command with '--skip-signature-check'."
         case .missingSignature:
             return "The collection is missing required signature, which means it might have been compromised. Please contact the collection's authors and alert them of the issue."
         }
@@ -55,7 +57,7 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
         _superCommandName: "swift",
         abstract: "Interact with package collections",
         discussion: "SEE ALSO: swift build, swift package, swift run, swift test",
-        version: SwiftVersion.currentVersion.completeDisplayString,
+        version: SwiftVersion.current.completeDisplayString,
         subcommands: [
             Add.self,
             Describe.self,
@@ -78,7 +80,7 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
         var jsonOptions: JSONOptions
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         func run(_ swiftTool: SwiftTool) throws {
             let collections = try with(swiftTool) { collections in
@@ -99,7 +101,7 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Refresh configured collections")
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         func run(_ swiftTool: SwiftTool) throws {
             let collections = try with(swiftTool) { collections in
@@ -125,7 +127,7 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
         var skipSignatureCheck: Bool = false
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         func run(_ swiftTool: SwiftTool) throws {
             let collectionURL = try url(self.collectionURL)
@@ -164,7 +166,7 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
         var collectionURL: String
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         func run(_ swiftTool: SwiftTool) throws {
             let collectionURL = try url(self.collectionURL)
@@ -198,7 +200,7 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
         var searchQuery: String
 
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         func run(_ swiftTool: SwiftTool) throws {
             try with(swiftTool) { collections in
@@ -244,8 +246,11 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
         @Option(name: .long, help: "Version of the package to get information for")
         var version: String?
 
+        @Flag(name: .long, help: "Skip signature check if the collection is signed")
+        var skipSignatureCheck: Bool = false
+
         @OptionGroup(_hiddenFromHelp: true)
-        var swiftOptions: SwiftToolOptions
+        var globalOptions: GlobalOptions
 
         private func printVersion(_ version: PackageCollectionsModel.Package.Version?) -> String? {
             guard let version = version else {
@@ -324,7 +329,7 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
                     let collectionURL = try url(self.packageURL)
 
                     do {
-                        let source = PackageCollectionsModel.CollectionSource(type: .json, url: collectionURL)
+                        let source = PackageCollectionsModel.CollectionSource(type: .json, url: collectionURL, skipSignatureCheck: self.skipSignatureCheck)
                         let collection = try tsc_await { collections.getCollection(source, callback: $0) }
 
                         let description = optionalRow("Description", collection.overview)
@@ -344,6 +349,10 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
                                     \(packages)\(signature)
                             """)
                         }
+                    } catch PackageCollectionError.cannotVerifySignature {
+                        throw CollectionsError.cannotVerifySignature
+                    } catch PackageCollectionError.invalidSignature {
+                        throw CollectionsError.invalidSignature
                     } catch {
                         print("Failed to get metadata. The given URL either belongs to a collection that is invalid or unavailable, or a package that is not found in any of the imported collections.")
                     }

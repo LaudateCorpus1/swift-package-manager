@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2018 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2018 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 /// Represents a platform.
 public struct Platform: Equatable, Hashable, Codable {
@@ -29,11 +31,11 @@ public struct Platform: Equatable, Hashable, Codable {
         return Platform(name: name, oldestSupportedVersion: PlatformVersion(oldestSupportedVersion))
     }
 
-    public static let macOS: Platform = Platform(name: "macos", oldestSupportedVersion: "10.10")
+    public static let macOS: Platform = Platform(name: "macos", oldestSupportedVersion: "10.13")
     public static let macCatalyst: Platform = Platform(name: "maccatalyst", oldestSupportedVersion: "13.0")
-    public static let iOS: Platform = Platform(name: "ios", oldestSupportedVersion: "9.0")
-    public static let tvOS: Platform = Platform(name: "tvos", oldestSupportedVersion: "9.0")
-    public static let watchOS: Platform = Platform(name: "watchos", oldestSupportedVersion: "2.0")
+    public static let iOS: Platform = Platform(name: "ios", oldestSupportedVersion: "11.0")
+    public static let tvOS: Platform = Platform(name: "tvos", oldestSupportedVersion: "11.0")
+    public static let watchOS: Platform = Platform(name: "watchos", oldestSupportedVersion: "4.0")
     public static let driverKit: Platform = Platform(name: "driverkit", oldestSupportedVersion: "19.0")
     public static let linux: Platform = Platform(name: "linux", oldestSupportedVersion: .unknown)
     public static let android: Platform = Platform(name: "android", oldestSupportedVersion: .unknown)
@@ -41,6 +43,21 @@ public struct Platform: Equatable, Hashable, Codable {
     public static let wasi: Platform = Platform(name: "wasi", oldestSupportedVersion: .unknown)
     public static let openbsd: Platform = Platform(name: "openbsd", oldestSupportedVersion: .unknown)
 
+}
+
+public struct SupportedPlatforms {
+    public let declared: [SupportedPlatform]
+    public let derived: [SupportedPlatform]
+
+    public init(declared: [SupportedPlatform], derived: [SupportedPlatform]) {
+        self.declared = declared
+        self.derived = derived
+    }
+
+    /// Returns the supported platform instance for the given platform.
+    public func getDerived(for platform: Platform) -> SupportedPlatform? {
+        return self.derived.first(where: { $0.platform == platform })
+    }
 }
 
 /// Represents a platform supported by a target.

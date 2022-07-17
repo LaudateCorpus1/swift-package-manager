@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -26,18 +28,6 @@ public struct ManifestParseDiagnostic: CustomStringConvertible {
 
     public var description: String {
         "manifest parse error(s):\n" + errors.joined(separator: "\n")
-    }
-}
-
-public struct InvalidToolchainDiagnostic: Error, CustomStringConvertible {
-    public let error: String
-
-    public init(_ error: String) {
-        self.error = error
-    }
-
-    public var description: String {
-        "toolchain is invalid: \(error)"
     }
 }
 
@@ -158,16 +148,16 @@ extension Basics.Diagnostic {
         .error("failed extracting '\(artifactPath)' which is required by binary target '\(targetName)': \(reason)")
     }
 
-    static func artifactNotFound(targetName: String, artifactName: String) -> Self {
-        .error("downloaded archive of binary target '\(targetName)' does not contain expected binary artifact named '\(artifactName)'")
+    static func artifactNotFound(targetName: String, expectedArtifactName: String) -> Self {
+        .error("downloaded archive of binary target '\(targetName)' does not contain expected binary artifact named '\(expectedArtifactName)'")
     }
 
-    static func localArchivedArtifactNotFound(targetName: String, artifactName: String) -> Self {
-        .error("local archive of binary target '\(targetName)' does not contain expected binary artifact named '\(artifactName)'")
+    static func localArchivedArtifactNotFound(targetName: String, expectedArtifactName: String) -> Self {
+        .error("local archive of binary target '\(targetName)' does not contain expected binary artifact named '\(expectedArtifactName)'")
     }
 
-    static func localArtifactNotFound(targetName: String, artifactName: String) -> Self {
-        .error("local binary target '\(targetName)' does not contain expected binary artifact named '\(artifactName)'")
+    static func localArtifactNotFound(targetName: String, expectedArtifactName: String) -> Self {
+        .error("local binary target '\(targetName)' does not contain expected binary artifact named '\(expectedArtifactName)'")
     }
 }
 

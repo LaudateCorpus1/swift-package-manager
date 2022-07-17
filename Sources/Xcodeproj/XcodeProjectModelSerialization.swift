@@ -1,14 +1,16 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
+
 /*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-
- -----------------------------------------------------------------
-
  An extemely simple rendition of the Xcode project model into a plist.  There
  is only enough functionality to allow serialization of Xcode projects.
 */
@@ -48,7 +50,7 @@ extension Xcode.Project: PropertyListSerializable {
         var dict = [String: PropertyList]()
         dict["isa"] = .string("PBXProject")
         // Since the project file is generated, we opt out of upgrade-checking.
-        // FIXME: Shoule we really?  Why would we not want to get upgraded?
+        // FIXME: Should we really?  Why would we not want to get upgraded?
         dict["attributes"] = .dictionary(["LastUpgradeCheck": .string("9999"),
                                           "LastSwiftMigration": .string("9999")])
         dict["compatibilityVersion"] = .string("Xcode 3.2")
@@ -617,7 +619,7 @@ fileprivate protocol PropertyListSerializable: AnyObject {
     ///
     /// This ID must be unique across the entire serialized graph.
     var objectID: String? { get }
-    
+
     /// Should create and return a property list dictionary of the object's
     /// attributes.  This function may also use the serializer's `serialize()`
     /// function to serialize other objects, and may use `id(of:)` to access

@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import PackageModel
@@ -124,6 +126,8 @@ extension SystemPackageProviderDescription {
             return "    apt-get install \(packages.joined(separator: " "))\n"
         case .yum(let packages):
             return "    yum install \(packages.joined(separator: " "))\n"
+        case .nuget(let packages):
+            return "    nuget install \(packages.joined(separator: " "))\n"
         }
     }
 
@@ -146,6 +150,13 @@ extension SystemPackageProviderDescription {
             if case .linux(.fedora) = platform {
                 return true
             }
+        case .nuget:
+            switch platform {
+            case .darwin, .windows, .linux:
+                return true
+            case .android:
+                return false
+            }
         }
         return false
     }
@@ -163,7 +174,7 @@ extension SystemPackageProviderDescription {
                 // to the latest version. Instead use the version as symlinked
                 // in /usr/local/opt/(NAME)/lib/pkgconfig.
                 struct Static {
-                    static let value = { try? Process.checkNonZeroExit(args: "brew", "--prefix").spm_chomp() }()
+                    static let value = { try? TSCBasic.Process.checkNonZeroExit(args: "brew", "--prefix").spm_chomp() }()
                 }
                 if let value = Static.value {
                     brewPrefix = value
@@ -175,6 +186,8 @@ extension SystemPackageProviderDescription {
         case .apt:
             return []
         case .yum:
+            return []
+        case .nuget:
             return []
         }
     }

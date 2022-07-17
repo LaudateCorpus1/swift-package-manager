@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import TSCBasic
 
@@ -46,6 +48,15 @@ public class Target: PolymorphicCodableProtocol {
         /// original target name and the value is a new unique name that also
         /// becomes the name of its .swiftmodule binary.
         public let moduleAliases: [String: String]?
+
+        /// Fully qualified name for this product dependency: package ID + name of the product
+        public var ID: String {
+            if let pkg = package {
+                return pkg.lowercased() + "_" + name
+            }
+            // package ID won't be included for products referenced only by name
+            return name
+        }
 
         /// Creates a product reference instance.
         public init(name: String, package: String?, moduleAliases: [String: String]? = nil) {
@@ -118,6 +129,10 @@ public class Target: PolymorphicCodableProtocol {
     /// dependent target and the value is a new unique name mapped to the name
     /// of its .swiftmodule binary.
     public private(set) var moduleAliases: [String: String]?
+    /// Used to store pre-chained / pre-overriden module aliases
+    public private(set) var prechainModuleAliases: [String: String]?
+    /// Used to store aliases that should be referenced directly in source code
+    public private(set) var directRefAliases: [String: [String]]?
 
     /// Add module aliases (if applicable) for dependencies of this target.
     ///
@@ -135,17 +150,40 @@ public class Target: PolymorphicCodableProtocol {
         } else {
             moduleAliases?[name] = alias
         }
+    }
 
-        // If the argument name is same as this target's name, this
-        // target should be renamed as the argument alias.
-        if name == self.name {
-            self.name = alias
-            self.c99name = alias.spm_mangledToC99ExtendedIdentifier()
+    public func removeModuleAlias(for name: String) {
+        moduleAliases?.removeValue(forKey: name)
+        if moduleAliases?.isEmpty ?? false {
+            moduleAliases = nil
         }
     }
-  
-    /// The default localization for resources.
-    public let defaultLocalization: String?
+
+    public func addPrechainModuleAlias(for name: String, as alias: String) {
+        if prechainModuleAliases == nil {
+            prechainModuleAliases = [name: alias]
+        } else {
+            prechainModuleAliases?[name] = alias
+        }
+    }
+    public func addDirectRefAliases(for name: String, as aliases: [String]) {
+        if directRefAliases == nil {
+            directRefAliases = [name: aliases]
+        } else {
+            directRefAliases?[name] = aliases
+        }
+    }
+
+    @discardableResult
+    public func applyAlias() -> Bool {
+        // If there's an alias for this target, rename
+        if let alias = moduleAliases?[name] {
+            self.name = alias
+            self.c99name = alias.spm_mangledToC99ExtendedIdentifier()
+            return true
+        }
+        return false
+    }
 
     /// The dependencies of this target.
     public let dependencies: [Dependency]
@@ -154,13 +192,19 @@ public class Target: PolymorphicCodableProtocol {
     public private(set) var c99name: String
 
     /// The bundle name, if one is being generated.
-    public let bundleName: String?
+    public var bundleName: String? {
+        return resources.isEmpty ? nil : potentialBundleName
+    }
+    public let potentialBundleName: String?
 
     /// Suffix that's expected for test targets.
     public static let testModuleNameSuffix = "Tests"
 
     /// The kind of target.
     public let type: Kind
+
+    /// The path of the target.
+    public let path: AbsolutePath
 
     /// The sources for the target.
     public let sources: Sources
@@ -174,14 +218,6 @@ public class Target: PolymorphicCodableProtocol {
     /// Other kinds of files in the target.
     public let others: [AbsolutePath]
 
-    /// The list of platforms that are supported by this target.
-    public let platforms: [SupportedPlatform]
-
-    /// Returns the supported platform instance for the given platform.
-    public func getSupportedPlatform(for platform: Platform) -> SupportedPlatform? {
-        return self.platforms.first(where: { $0.platform == platform })
-    }
-
     /// The build settings assignments of this target.
     public let buildSettings: BuildSettings.AssignmentTable
 
@@ -190,10 +226,9 @@ public class Target: PolymorphicCodableProtocol {
 
     fileprivate init(
         name: String,
-        bundleName: String? = nil,
-        defaultLocalization: String?,
-        platforms: [SupportedPlatform],
+        potentialBundleName: String? = nil,
         type: Kind,
+        path: AbsolutePath,
         sources: Sources,
         resources: [Resource] = [],
         ignored: [AbsolutePath] = [],
@@ -203,10 +238,9 @@ public class Target: PolymorphicCodableProtocol {
         pluginUsages: [PluginUsage]
     ) {
         self.name = name
-        self.bundleName = bundleName
-        self.defaultLocalization = defaultLocalization
-        self.platforms = platforms
+        self.potentialBundleName = potentialBundleName
         self.type = type
+        self.path = path
         self.sources = sources
         self.resources = resources
         self.ignored = ignored
@@ -218,7 +252,7 @@ public class Target: PolymorphicCodableProtocol {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, bundleName, defaultLocalization, platforms, type, sources, resources, ignored, others, buildSettings, pluginUsages
+        case name, potentialBundleName, defaultLocalization, platforms, type, path, sources, resources, ignored, others, buildSettings, pluginUsages
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -227,10 +261,9 @@ public class Target: PolymorphicCodableProtocol {
         // FIXME: dependencies property is skipped on purpose as it points to
         // the actual target dependency object.
         try container.encode(name, forKey: .name)
-        try container.encode(bundleName, forKey: .bundleName)
-        try container.encode(defaultLocalization, forKey: .defaultLocalization)
-        try container.encode(platforms, forKey: .platforms)
+        try container.encode(potentialBundleName, forKey: .potentialBundleName)
         try container.encode(type, forKey: .type)
+        try container.encode(path, forKey: .path)
         try container.encode(sources, forKey: .sources)
         try container.encode(resources, forKey: .resources)
         try container.encode(ignored, forKey: .ignored)
@@ -243,10 +276,9 @@ public class Target: PolymorphicCodableProtocol {
     required public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.name = try container.decode(String.self, forKey: .name)
-        self.bundleName = try container.decodeIfPresent(String.self, forKey: .bundleName)
-        self.defaultLocalization = try container.decodeIfPresent(String.self, forKey: .defaultLocalization)
-        self.platforms = try container.decode([SupportedPlatform].self, forKey: .platforms)
+        self.potentialBundleName = try container.decodeIfPresent(String.self, forKey: .potentialBundleName)
         self.type = try container.decode(Kind.self, forKey: .type)
+        self.path = try container.decode(AbsolutePath.self, forKey: .path)
         self.sources = try container.decode(Sources.self, forKey: .sources)
         self.resources = try container.decode([Resource].self, forKey: .resources)
         self.ignored = try container.decode([AbsolutePath].self, forKey: .ignored)
@@ -283,14 +315,13 @@ public final class SwiftTarget: Target {
     /// The file name of test manifest.
     public static let testManifestNames = ["XCTMain.swift", "LinuxMain.swift"]
 
-    public init(testDiscoverySrc: Sources, name: String, dependencies: [Target.Dependency]) {
+    public init(name: String, dependencies: [Target.Dependency], testDiscoverySrc: Sources) {
         self.swiftVersion = .v5
 
         super.init(
             name: name,
-            defaultLocalization: nil,
-            platforms: [],
             type: .executable,
+            path: .root,
             sources: testDiscoverySrc,
             dependencies: dependencies,
             buildSettings: .init(),
@@ -303,10 +334,9 @@ public final class SwiftTarget: Target {
 
     public init(
         name: String,
-        bundleName: String? = nil,
-        defaultLocalization: String? = nil,
-        platforms: [SupportedPlatform] = [],
+        potentialBundleName: String? = nil,
         type: Kind,
+        path: AbsolutePath,
         sources: Sources,
         resources: [Resource] = [],
         ignored: [AbsolutePath] = [],
@@ -319,10 +349,9 @@ public final class SwiftTarget: Target {
         self.swiftVersion = swiftVersion
         super.init(
             name: name,
-            bundleName: bundleName,
-            defaultLocalization: defaultLocalization,
-            platforms: platforms,
+            potentialBundleName: potentialBundleName,
             type: type,
+            path: path,
             sources: sources,
             resources: resources,
             ignored: ignored,
@@ -334,7 +363,7 @@ public final class SwiftTarget: Target {
     }
 
     /// Create an executable Swift target from test manifest file.
-    public init(testManifest: AbsolutePath, name: String, dependencies: [Target.Dependency]) {
+    public init(name: String, dependencies: [Target.Dependency], testManifest: AbsolutePath) {
         // Look for the first swift test target and use the same swift version
         // for linux main target. This will need to change if we move to a model
         // where we allow per target swift language version build settings.
@@ -347,16 +376,13 @@ public final class SwiftTarget: Target {
         // We need to select the latest Swift language version that can
         // satisfy the current tools version but there is not a good way to
         // do that currently.
-        self.swiftVersion = swiftTestTarget?.swiftVersion ?? SwiftLanguageVersion(string: String(ToolsVersion.currentToolsVersion.major)) ?? .v4
+        self.swiftVersion = swiftTestTarget?.swiftVersion ?? SwiftLanguageVersion(string: String(SwiftVersion.current.major)) ?? .v4
         let sources = Sources(paths: [testManifest], root: testManifest.parentDirectory)
-
-        let platforms: [SupportedPlatform] = swiftTestTarget?.platforms ?? []
 
         super.init(
             name: name,
-            defaultLocalization: nil,
-            platforms: platforms,
             type: .executable,
+            path: .root,
             sources: sources,
             dependencies: dependencies,
             buildSettings: .init(),
@@ -389,18 +415,12 @@ public final class SystemLibraryTarget: Target {
     /// List of system package providers, if any.
     public let providers: [SystemPackageProviderDescription]?
 
-    /// The package path.
-    public var path: AbsolutePath {
-        return sources.root
-    }
-
     /// True if this system library should become implicit target
     /// dependency of its dependent packages.
     public let isImplicit: Bool
 
     public init(
         name: String,
-        platforms: [SupportedPlatform] = [],
         path: AbsolutePath,
         isImplicit: Bool = true,
         pkgConfig: String? = nil,
@@ -412,9 +432,8 @@ public final class SystemLibraryTarget: Target {
         self.isImplicit = isImplicit
         super.init(
             name: name,
-            defaultLocalization: nil,
-            platforms: platforms,
             type: .systemModule,
+            path: sources.root,
             sources: sources,
             dependencies: [],
             buildSettings: .init(),
@@ -470,15 +489,14 @@ public final class ClangTarget: Target {
 
     public init(
         name: String,
-        bundleName: String? = nil,
-        defaultLocalization: String? = nil,
-        platforms: [SupportedPlatform] = [],
+        potentialBundleName: String? = nil,
         cLanguageStandard: String?,
         cxxLanguageStandard: String?,
         includeDir: AbsolutePath,
         moduleMapType: ModuleMapType,
         headers: [AbsolutePath] = [],
         type: Kind,
+        path: AbsolutePath,
         sources: Sources,
         resources: [Resource] = [],
         ignored: [AbsolutePath] = [],
@@ -497,10 +515,9 @@ public final class ClangTarget: Target {
         self.headers = headers
         super.init(
             name: name,
-            bundleName: bundleName,
-            defaultLocalization: defaultLocalization,
-            platforms: platforms,
+            potentialBundleName: potentialBundleName,
             type: type,
+            path: path,
             sources: sources,
             resources: resources,
             ignored: ignored,
@@ -553,7 +570,6 @@ public final class BinaryTarget: Target {
     public init(
         name: String,
         kind: Kind,
-        platforms: [SupportedPlatform] = [],
         path: AbsolutePath,
         origin: Origin
     ) {
@@ -562,9 +578,8 @@ public final class BinaryTarget: Target {
         let sources = Sources(paths: [], root: path)
         super.init(
             name: name,
-            defaultLocalization: nil,
-            platforms: platforms,
             type: .binary,
+            path: .root,
             sources: sources,
             dependencies: [],
             buildSettings: .init(),
@@ -675,7 +690,6 @@ public final class PluginTarget: Target {
 
     public init(
         name: String,
-        platforms: [SupportedPlatform] = [],
         sources: Sources,
         apiVersion: ToolsVersion,
         pluginCapability: PluginCapability,
@@ -685,9 +699,8 @@ public final class PluginTarget: Target {
         self.apiVersion = apiVersion
         super.init(
             name: name,
-            defaultLocalization: nil,
-            platforms: platforms,
             type: .plugin,
+            path: .root,
             sources: sources,
             dependencies: dependencies,
             buildSettings: .init(),

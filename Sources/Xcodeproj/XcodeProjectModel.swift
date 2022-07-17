@@ -1,29 +1,31 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
+
 /*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-
- -----------------------------------------------------------------------------
-
  A very simple rendition of the Xcode project model.  There is only sufficient
  functionality to allow creation of Xcode projects in a somewhat readable way,
  and serialization to .xcodeproj plists.  There is no consistency checking to
  ensure, for example, that build settings have valid values, dependency cycles
  are not created, etc.
- 
+
  Everything here is geared toward supporting project generation.  The intended
  usage model is for custom logic to build up a project using Xcode terminology
  (e.g. "group", "reference", "target", "build phase"), but there is almost no
  provision for modifying the model after it has been built up.  The intent is
  to create it as desired from the start.
- 
+
  Rather than try to represent everything that Xcode's project model supports,
  the approach is to start small and to add functionality as needed.
- 
+
  Note that this API represents only the project model — there is no notion of
  workspaces, schemes, etc (although schemes are represented individually in a
  separate API).  The notion of build settings is also somewhat different from
@@ -35,11 +37,11 @@
  configuration of the settings, since most values are the same between Debug
  and Release.  Also, the build settings themselves are represented as structs
  of named fields, instead of dictionaries with arbitrary name strings as keys.
- 
+
  It is expected that some of these simplifications will need to be lifted over
  time, based on need.  That should be done carefully, however, to avoid ending
  up with an overly complicated model.
- 
+
  Some things that are incomplete in even this first model:
  - copy files build phases are incomplete
  - shell script build phases are incomplete
@@ -82,7 +84,7 @@ public struct Xcode {
         }
     }
 
-    /// Abstract base class for all items in the group hierarhcy.
+    /// Abstract base class for all items in the group hierarchy.
     public class Reference {
         /// Relative path of the reference.  It is usually a literal, but may
         /// in fact contain build settings.
@@ -391,6 +393,7 @@ public struct Xcode {
             public var SWIFT_ACTIVE_COMPILATION_CONDITIONS: [String]?
             public var SWIFT_FORCE_STATIC_LINK_STDLIB: String?
             public var SWIFT_FORCE_DYNAMIC_LINK_STDLIB: String?
+            public var SWIFT_MODULE_ALIASES: [String: String]?
             public var SWIFT_OPTIMIZATION_LEVEL: String?
             public var SWIFT_VERSION: String?
             public var TARGET_NAME: String?
@@ -440,6 +443,7 @@ public struct Xcode {
                 SWIFT_ACTIVE_COMPILATION_CONDITIONS: [String]? = nil,
                 SWIFT_FORCE_STATIC_LINK_STDLIB: String? = nil,
                 SWIFT_FORCE_DYNAMIC_LINK_STDLIB: String? = nil,
+                SWIFT_MODULE_ALIASES: [String: String]? = nil,
                 SWIFT_OPTIMIZATION_LEVEL: String? = nil,
                 SWIFT_VERSION: String? = nil,
                 TARGET_NAME: String? = nil,
@@ -488,6 +492,7 @@ public struct Xcode {
                 self.SWIFT_ACTIVE_COMPILATION_CONDITIONS = SWIFT_ACTIVE_COMPILATION_CONDITIONS
                 self.SWIFT_FORCE_STATIC_LINK_STDLIB = SWIFT_FORCE_STATIC_LINK_STDLIB
                 self.SWIFT_FORCE_DYNAMIC_LINK_STDLIB = SWIFT_FORCE_DYNAMIC_LINK_STDLIB
+                self.SWIFT_MODULE_ALIASES = SWIFT_MODULE_ALIASES
                 self.SWIFT_OPTIMIZATION_LEVEL = SWIFT_OPTIMIZATION_LEVEL
                 self.SWIFT_VERSION = SWIFT_VERSION
                 self.TARGET_NAME = TARGET_NAME
@@ -498,7 +503,7 @@ public struct Xcode {
     }
 }
 
-/// Adds the abililty to append to an option array of strings that hasn't yet
+/// Adds the ability to append to an option array of strings that hasn't yet
 /// been created.
 /// FIXME: While we want the end result of being able to say `FLAGS += ["-O"]`
 /// it is probably not how we want to implement it, since it changes behavior

@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -29,7 +31,7 @@ public class MockRegistry {
     private var packageVersions = [PackageIdentity: [String: InMemoryRegistryPackageSource]]()
     private var packagesSourceControlURLs = [PackageIdentity: [URL]]()
     private var sourceControlURLs = [URL: PackageIdentity]()
-    private let packagesLock = Lock()
+    private let packagesLock = NSLock()
 
     public init(
         filesystem: FileSystem,
@@ -299,7 +301,7 @@ public struct InMemoryRegistryPackageSource {
         self.path = path
     }
 
-    public func writePackageContent(targets: [String] = [], toolsVersion: ToolsVersion = .currentToolsVersion) throws {
+    public func writePackageContent(targets: [String] = [], toolsVersion: ToolsVersion = .current) throws {
         try self.fileSystem.createDirectory(self.path, recursive: true)
         let sourcesDir = self.path.appending(component: "Sources")
         for target in targets {
@@ -346,7 +348,7 @@ private struct MockRegistryArchiver: Archiver {
             let rootPath = lines[1]
             for path in lines[2..<lines.count] {
                 let relativePath = String(path.dropFirst(rootPath.count + 1))
-                let targetPath = destinationPath.appending(component: "package").appending(RelativePath(relativePath))
+                let targetPath = AbsolutePath(relativePath, relativeTo: destinationPath.appending(component: "package"))
                 if !self.fileSystem.exists(targetPath.parentDirectory) {
                     try self.fileSystem.createDirectory(targetPath.parentDirectory, recursive: true)
                 }

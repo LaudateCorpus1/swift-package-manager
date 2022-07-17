@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright 2015 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2015-2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -122,7 +124,7 @@ extension BuildParameters {
         var args = ["-target"]
         // Compute the triple string for Darwin platform using the platform version.
         if triple.isDarwin() {
-            guard let macOSSupportedPlatform = target.underlyingTarget.getSupportedPlatform(for: .macOS) else {
+            guard let macOSSupportedPlatform = target.platforms.getDerived(for: .macOS) else {
                 throw StringError("the target \(target) doesn't support building for macOS")
             }
             args += [triple.tripleString(forPlatformVersion: macOSSupportedPlatform.version.versionString)]
@@ -169,6 +171,17 @@ public enum TargetBuildDescription {
             return target.objects
         case .clang(let target):
             return target.objects
+        }
+    }
+
+    /// The resources in this target.
+    var resources: [Resource] {
+        switch self {
+        case .swift(let target):
+            return target.resources
+        case .clang(let target):
+            // TODO: Clang targets should support generated resources in the future.
+            return target.target.underlyingTarget.resources
         }
     }
 
@@ -221,7 +234,7 @@ public final class ClangTargetBuildDescription {
     public var clangTarget: ClangTarget {
         return target.underlyingTarget as! ClangTarget
     }
-    
+
     /// The tools version of the package that declared the target.  This can
     /// can be used to conditionalize semantically significant changes in how
     /// a target is built.
@@ -237,7 +250,7 @@ public final class ClangTargetBuildDescription {
 
     /// Path to the bundle generated for this module (if any).
     var bundlePath: AbsolutePath? {
-        buildParameters.bundlePath(for: target)
+        target.underlyingTarget.bundleName.map(buildParameters.bundlePath(named:))
     }
 
     /// The modulemap file for this target, if any.
@@ -328,8 +341,8 @@ public final class ClangTargetBuildDescription {
         return sources.flatMap { (root, relativePaths) in
             relativePaths.map { source in
                 let path = root.appending(source)
-                let object = tempsPath.appending(RelativePath("\(source.pathString).o"))
-                let deps = tempsPath.appending(RelativePath("\(source.pathString).d"))
+                let object = AbsolutePath("\(source.pathString).o", relativeTo: tempsPath)
+                let deps = AbsolutePath("\(source.pathString).d", relativeTo: tempsPath)
                 return (source, path, object, deps)
             }
         }
@@ -340,7 +353,7 @@ public final class ClangTargetBuildDescription {
     public func basicArguments(isCXX isCXXOverride: Bool? = .none) throws -> [String] {
         // For now fall back on the hold semantics if the C++ nature isn't specified. This is temporary until clients have been updated.
         let isCXX = isCXXOverride ?? clangTarget.isCXX
-        
+
         var args = [String]()
         // Only enable ARC on macOS.
         if buildParameters.triple.isDarwin() {
@@ -364,13 +377,13 @@ public final class ClangTargetBuildDescription {
         } else if buildParameters.triple.isDarwin(), (try? buildParameters.toolchain._isClangCompilerVendorApple()) == true {
             args += buildParameters.indexStoreArguments(for: target)
         }
-        
+
         // Enable Clang module flags, if appropriate. We enable them except in these cases:
         // 1. on Darwin when compiling for C++, because C++ modules are disabled on Apple-built Clang releases
         // 2. on Windows when compiling for any language, because of issues with the Windows SDK
         // 3. on Android when compiling for any language, because of issues with the Android SDK
         let enableModules = !(buildParameters.triple.isDarwin() && isCXX) && !buildParameters.triple.isWindows() && !buildParameters.triple.isAndroid()
-        
+
         if enableModules {
             // Using modules currently conflicts with the Windows and Android SDKs.
             args += ["-fmodules", "-fmodule-name=" + target.c99name]
@@ -388,7 +401,7 @@ public final class ClangTargetBuildDescription {
         }
         args += buildParameters.sanitizers.compileCFlags()
 
-        // Add agruments from declared build settings.
+        // Add arguments from declared build settings.
         args += self.buildSettingsFlags()
 
         if let resourceAccessorHeaderFile = self.resourceAccessorHeaderFile {
@@ -418,7 +431,7 @@ public final class ClangTargetBuildDescription {
         // Header search paths.
         let headerSearchPaths = scope.evaluate(.HEADER_SEARCH_PATHS)
         flags += headerSearchPaths.map({
-            "-I\(target.sources.root.appending(RelativePath($0)).pathString)"
+            "-I\(AbsolutePath($0, relativeTo: target.sources.root).pathString)"
         })
 
         // Other C flags.
@@ -517,6 +530,8 @@ public final class ClangTargetBuildDescription {
 
 /// Target description for a Swift target.
 public final class SwiftTargetBuildDescription {
+    /// The package this target belongs to.
+    public let package: ResolvedPackage
 
     /// The target described by this target.
     public let target: ResolvedTarget
@@ -536,13 +551,20 @@ public final class SwiftTargetBuildDescription {
     ///
     /// These are the source files generated during the build.
     private var derivedSources: Sources
-    
+
     /// These are the source files derived from plugins.
     private var pluginDerivedSources: Sources
 
+    /// These are the resource files derived from plugins.
+    private var pluginDerivedResources: [Resource]
+
     /// Path to the bundle generated for this module (if any).
     var bundlePath: AbsolutePath? {
-        buildParameters.bundlePath(for: target)
+        if let bundleName = target.underlyingTarget.potentialBundleName, !resources.isEmpty {
+            return buildParameters.bundlePath(named: bundleName)
+        } else {
+            return .none
+        }
     }
 
     /// The list of all source files in the target, including the derived ones.
@@ -550,16 +572,23 @@ public final class SwiftTargetBuildDescription {
         target.sources.paths + derivedSources.paths + pluginDerivedSources.paths
     }
 
+    /// The list of all resource files in the target, including the derived ones.
+    public var resources: [Resource] {
+        target.underlyingTarget.resources + pluginDerivedResources
+    }
+
     /// The objects in this target.
     public var objects: [AbsolutePath] {
         let relativePaths = target.sources.relativePaths + derivedSources.relativePaths + pluginDerivedSources.relativePaths
-        return relativePaths.map{ tempsPath.appending(RelativePath("\($0.pathString).o")) }
+        return relativePaths.map  {
+            AbsolutePath("\($0.pathString).o", relativeTo: tempsPath)
+        }
     }
 
     /// The path to the swiftmodule file after compilation.
     var moduleOutputPath: AbsolutePath {
         // If we're an executable and we're not allowing test targets to link against us, we hide the module.
-        let allowLinkingAgainstExecutables = (buildParameters.triple.isDarwin() || buildParameters.triple.isLinux()) && toolsVersion >= .v5_5
+        let allowLinkingAgainstExecutables = (buildParameters.triple.isDarwin() || buildParameters.triple.isLinux() || buildParameters.triple.isWindows()) && toolsVersion >= .v5_5
         let dirPath = (target.type == .executable && !allowLinkingAgainstExecutables) ? tempsPath : buildParameters.buildPath
         return dirPath.appending(component: target.c99name + ".swiftmodule")
     }
@@ -595,7 +624,7 @@ public final class SwiftTargetBuildDescription {
 
     /// True if this is the test discovery target.
     public let isTestDiscoveryTarget: Bool
-    
+
     /// True if this module needs to be parsed as a library based on the target type and the configuration
     /// of the source code (for example because it has a single source file whose name isn't "main.swift").
     /// This deactivates heuristics in the Swift compiler that treats single-file modules and source files
@@ -622,27 +651,34 @@ public final class SwiftTargetBuildDescription {
 
     /// The modulemap file for this target, if any.
     private(set) var moduleMap: AbsolutePath?
-    
+
     /// The results of applying any build tool plugins to this target.
     public let buildToolPluginInvocationResults: [BuildToolPluginInvocationResult]
 
     /// The results of running any prebuild commands for this target.
     public let prebuildCommandResults: [PrebuildCommandResult]
 
+    /// ObservabilityScope with which to emit diagnostics
+    private let observabilityScope: ObservabilityScope
+
     /// Create a new target description with target and build parameters.
     init(
+        package: ResolvedPackage,
         target: ResolvedTarget,
         toolsVersion: ToolsVersion,
+        additionalFileRules: [FileRuleDescription] = [],
         buildParameters: BuildParameters,
         buildToolPluginInvocationResults: [BuildToolPluginInvocationResult] = [],
         prebuildCommandResults: [PrebuildCommandResult] = [],
         isTestTarget: Bool? = nil,
         isTestDiscoveryTarget: Bool = false,
-        fileSystem: FileSystem
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
     ) throws {
         guard target.underlyingTarget is SwiftTarget else {
             throw InternalError("underlying target type mismatch \(target)")
         }
+        self.package = package
         self.target = target
         self.toolsVersion = toolsVersion
         self.buildParameters = buildParameters
@@ -655,25 +691,31 @@ public final class SwiftTargetBuildDescription {
         self.pluginDerivedSources = Sources(paths: [], root: buildParameters.dataPath)
         self.buildToolPluginInvocationResults = buildToolPluginInvocationResults
         self.prebuildCommandResults = prebuildCommandResults
+        self.observabilityScope = observabilityScope
 
-        // Add any derived source files that were declared for any commands from plugin invocations.
+        // Add any derived files that were declared for any commands from plugin invocations.
+        var pluginDerivedFiles = [AbsolutePath]()
         for command in buildToolPluginInvocationResults.reduce([], { $0 + $1.buildCommands }) {
-            // TODO: What should we do if we find non-Swift sources here?
             for absPath in command.outputFiles {
-                let relPath = absPath.relative(to: self.pluginDerivedSources.root)
-                self.pluginDerivedSources.relativePaths.append(relPath)
+                pluginDerivedFiles.append(absPath)
             }
         }
 
-        // Add any derived source files that were discovered from output directories of prebuild commands.
+        // Add any derived files that were discovered from output directories of prebuild commands.
         for result in self.prebuildCommandResults {
-            // TODO: What should we do if we find non-Swift sources here?
-            for path in result.derivedSourceFiles {
-                let relPath = path.relative(to: self.pluginDerivedSources.root)
-                self.pluginDerivedSources.relativePaths.append(relPath)
+            for path in result.derivedFiles {
+                pluginDerivedFiles.append(path)
             }
         }
-        
+
+        // Let `TargetSourcesBuilder` compute the treatment of plugin generated files.
+        let (derivedSources, derivedResources) = TargetSourcesBuilder.computeContents(for: pluginDerivedFiles, toolsVersion: toolsVersion, additionalFileRules: additionalFileRules, defaultLocalization: target.defaultLocalization, targetName: target.name, targetPath: target.underlyingTarget.path, observabilityScope: observabilityScope)
+        self.pluginDerivedResources = derivedResources
+        derivedSources.forEach { absPath in
+            let relPath = absPath.relative(to: self.pluginDerivedSources.root)
+            self.pluginDerivedSources.relativePaths.append(relPath)
+        }
+
         if shouldEmitObjCCompatibilityHeader {
             self.moduleMap = try self.generateModuleMap()
         }
@@ -696,8 +738,8 @@ public final class SwiftTargetBuildDescription {
 
         let mainPathSubstitution: String
         if buildParameters.triple.isWASI() {
-            // We prefer compile-time evaluation of the bundle path here for WASI. There's no benefit in evaluating this at runtime, 
-            // especially as Bundle support in WASI Foundation is partial. We expect all resource paths to evaluate to 
+            // We prefer compile-time evaluation of the bundle path here for WASI. There's no benefit in evaluating this at runtime,
+            // especially as Bundle support in WASI Foundation is partial. We expect all resource paths to evaluate to
             // `/\(resourceBundleName)/\(resourcePath)`, which allows us to pass this path to JS APIs like `fetch` directly, or to
             // `<img src=` HTML attributes. The resources are loaded from the server, and we can't hardcode the host part in the URL.
             // Making URLs relative by starting them with `/\(resourceBundleName)` makes it work in the browser.
@@ -737,7 +779,7 @@ public final class SwiftTargetBuildDescription {
         let path = derivedSources.root.appending(subpath)
         try self.fileSystem.writeIfChanged(path: path, bytes: stream.bytes)
     }
-    
+
     public static func checkSupportedFrontendFlags(flags: Set<String>, fileSystem: FileSystem) -> Bool {
         do {
             let executor = try SPMSwiftDriverExecutor(resolver: ArgsResolver(fileSystem: fileSystem), fileSystem: fileSystem, env: [:])
@@ -747,7 +789,7 @@ public final class SwiftTargetBuildDescription {
             return false
         }
     }
-    
+
     /// The arguments needed to compile this target.
     public func compileArguments() throws -> [String] {
         var args = [String]()
@@ -797,7 +839,7 @@ public final class SwiftTargetBuildDescription {
                 args += ["-Xfrontend", "-entry-point-function-name", "-Xfrontend", "\(target.c99name)_main"]
             }
         }
-        
+
         // If the target needs to be parsed without any special semantics involving "main.swift", do so now.
         if self.needsToBeParsedAsLibrary {
             args += ["-parse-as-library"]
@@ -834,26 +876,40 @@ public final class SwiftTargetBuildDescription {
         args += buildParameters.toolchain.extraSwiftCFlags
         // User arguments (from -Xswiftc) should follow generated arguments to allow user overrides
         args += buildParameters.swiftCompilerFlags
+
+        // suppress warnings if the package is remote
+        if self.package.isRemote {
+            args += ["-suppress-warnings"]
+            // suppress-warnings and warnings-as-errors are mutually exclusive
+            if let index = args.firstIndex(of: "-warnings-as-errors") {
+                args.remove(at: index)
+            }
+        }
+
         return args
     }
 
-    public func emitCommandLine() throws -> [String] {
+    /// When `scanInvocation` argument is set to `true`, omit the side-effect producing arguments
+    /// such as emitting a module or supplementary outputs.
+    public func emitCommandLine(scanInvocation: Bool = false) throws -> [String] {
         var result: [String] = []
-        result.append(buildParameters.toolchain.swiftCompiler.pathString)
+        result.append(buildParameters.toolchain.swiftCompilerPath.pathString)
 
         result.append("-module-name")
         result.append(target.c99name)
 
-        result.append("-emit-dependencies")
+        if !scanInvocation {
+            result.append("-emit-dependencies")
 
-        // FIXME: Do we always have a module?
-        result.append("-emit-module")
-        result.append("-emit-module-path")
-        result.append(moduleOutputPath.pathString)
+            // FIXME: Do we always have a module?
+            result.append("-emit-module")
+            result.append("-emit-module-path")
+            result.append(moduleOutputPath.pathString)
 
-        result.append("-output-file-map")
-        // FIXME: Eliminate side effect.
-        result.append(try writeOutputFileMap().pathString)
+            result.append("-output-file-map")
+            // FIXME: Eliminate side effect.
+            result.append(try writeOutputFileMap().pathString)
+        }
 
         if buildParameters.useWholeModuleOptimization {
             result.append("-whole-module-optimization")
@@ -880,7 +936,7 @@ public final class SwiftTargetBuildDescription {
         }
 
         var result: [String] = []
-        result.append(buildParameters.toolchain.swiftCompiler.pathString)
+        result.append(buildParameters.toolchain.swiftCompilerPath.pathString)
 
         result.append("-module-name")
         result.append(target.c99name)
@@ -927,7 +983,7 @@ public final class SwiftTargetBuildDescription {
         }
 
         var result: [String] = []
-        result.append(buildParameters.toolchain.swiftCompiler.pathString)
+        result.append(buildParameters.toolchain.swiftCompilerPath.pathString)
 
         result.append("-module-name")
         result.append(target.c99name)
@@ -1071,7 +1127,7 @@ public final class SwiftTargetBuildDescription {
         // Header search paths.
         let headerSearchPaths = scope.evaluate(.HEADER_SEARCH_PATHS)
         flags += headerSearchPaths.flatMap({ path -> [String] in
-            return ["-Xcc", "-I\(target.sources.root.appending(RelativePath(path)).pathString)"]
+            return ["-Xcc", "-I\(AbsolutePath(path, relativeTo: target.sources.root).pathString)"]
         })
 
         // Other C flags.
@@ -1136,6 +1192,9 @@ public final class SwiftTargetBuildDescription {
 public final class ProductBuildDescription {
 
     /// The reference to the product.
+    public let package: ResolvedPackage
+
+    /// The reference to the product.
     public let product: ResolvedProduct
 
     /// The tools version of the package that declared the product.  This can
@@ -1192,11 +1251,19 @@ public final class ProductBuildDescription {
     private let observabilityScope: ObservabilityScope
 
     /// Create a build description for a product.
-    init(product: ResolvedProduct, toolsVersion: ToolsVersion, buildParameters: BuildParameters, fileSystem: FileSystem, observabilityScope: ObservabilityScope) throws {
+    init(
+        package: ResolvedPackage,
+        product: ResolvedProduct,
+        toolsVersion: ToolsVersion,
+        buildParameters: BuildParameters,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) throws {
         guard product.type != .library(.automatic) else {
             throw InternalError("Automatic type libraries should not be described.")
         }
 
+        self.package = package
         self.product = product
         self.toolsVersion = toolsVersion
         self.buildParameters = buildParameters
@@ -1227,6 +1294,15 @@ public final class ProductBuildDescription {
                 return ["-Xlinker", "-dead_strip"]
             } else if buildParameters.triple.isWindows() {
                 return ["-Xlinker", "/OPT:REF"]
+            } else if buildParameters.triple.arch == .wasm32 {
+                // FIXME: wasm-ld strips data segments referenced through __start/__stop symbols
+                // during GC, and it removes Swift metadata sections like swift5_protocols
+                // We should add support of SHF_GNU_RETAIN-like flag for __attribute__((retain))
+                // to LLVM and wasm-ld
+                // This workaround is required for not only WASI but also all WebAssembly archs
+                // using wasm-ld (e.g. wasm32-unknown-unknown). So this branch is conditioned by
+                // arch == .wasm32
+                return []
             } else {
                 return ["-Xlinker", "--gc-sections"]
             }
@@ -1235,7 +1311,7 @@ public final class ProductBuildDescription {
 
     /// The arguments to link and create this product.
     public func linkArguments() throws -> [String] {
-        var args = [buildParameters.toolchain.swiftCompiler.pathString]
+        var args = [buildParameters.toolchain.swiftCompilerPath.pathString]
         args += buildParameters.sanitizers.linkSwiftFlags()
         args += additionalFlags
 
@@ -1298,7 +1374,7 @@ public final class ProductBuildDescription {
             }
             args += ["-emit-executable"]
             args += deadStripArguments
-            
+
             // If we're linking an executable whose main module is implemented in Swift,
             // we rename the `_<modulename>_main` entry point symbol to `_main` again.
             // This is because executable modules implemented in Swift are compiled with
@@ -1340,15 +1416,10 @@ public final class ProductBuildDescription {
             throw InternalError("unexpectedly asked to generate linker arguments for a plugin product")
           }
 
-          if useStdlibRpath && buildParameters.triple.isDarwin() {
-            let stdlib = buildParameters.toolchain.macosSwiftStdlib
-            args += ["-Xlinker", "-rpath", "-Xlinker", stdlib.pathString]
-          }
-
           // When deploying to macOS prior to macOS 12, add an rpath to the
           // back-deployed concurrency libraries.
-          if buildParameters.triple.isDarwin(),
-             let macOSSupportedPlatform = product.targets[0].underlyingTarget.getSupportedPlatform(for: .macOS),
+          if useStdlibRpath, buildParameters.triple.isDarwin(),
+             let macOSSupportedPlatform = self.package.platforms.getDerived(for: .macOS),
              macOSSupportedPlatform.version.major < 12 {
             let backDeployedStdlib = buildParameters.toolchain.macosSwiftStdlib
               .parentDirectory
@@ -1440,10 +1511,10 @@ public final class ProductBuildDescription {
 /// builds, this information is included in the BuildDescription, and the plugin
 /// targets are compiled directly.
 public final class PluginDescription: Codable {
-    
+
     /// The identity of the package in which the plugin is defined.
     public let package: PackageIdentity
-    
+
     /// The name of the plugin target in that package (this is also the name of
     /// the plugin).
     public let targetName: String
@@ -1455,7 +1526,7 @@ public final class PluginDescription: Codable {
     /// The tools version of the package that declared the target. This affects
     /// the API that is available in the PackagePlugin module.
     public let toolsVersion: ToolsVersion
-    
+
     /// Swift source files that comprise the plugin.
     public let sources: Sources
 
@@ -1512,7 +1583,7 @@ public class BuildPlan {
 
     /// The product build description map.
     public let productMap: [ResolvedProduct: ProductBuildDescription]
-    
+
     /// The plugin descriptions. Plugins are represented in the package graph
     /// as targets, but they are not directly included in the build graph.
     public let pluginDescriptions: [PluginDescription]
@@ -1564,6 +1635,9 @@ public class BuildPlan {
         var generateRedundant = generate
         var result: [(ResolvedProduct, SwiftTargetBuildDescription)] = []
         for testProduct in graph.allProducts where testProduct.type == .test {
+            guard let package = graph.package(for: testProduct) else {
+                throw InternalError("package not found for \(testProduct)")
+            }
             generateRedundant = generateRedundant && nil == testProduct.testManifestTarget
             // if test manifest exists, prefer that over test detection,
             // this is designed as an escape hatch when test discovery is not appropriate
@@ -1571,11 +1645,13 @@ public class BuildPlan {
             let toolsVersion = graph.package(for: testProduct)?.manifest.toolsVersion ?? .v5_5
             if let testManifestTarget = testProduct.testManifestTarget, !generate {
                 let desc = try SwiftTargetBuildDescription(
+                    package: package,
                     target: testManifestTarget,
                     toolsVersion: toolsVersion,
                     buildParameters: buildParameters,
                     isTestTarget: true,
-                    fileSystem: fileSystem
+                    fileSystem: fileSystem,
+                    observabilityScope: observabilityScope
                 )
 
                 result.append((testProduct, desc))
@@ -1594,22 +1670,26 @@ public class BuildPlan {
                 let src = Sources(paths: paths, root: derivedTestListDir)
 
                 let swiftTarget = SwiftTarget(
-                    testDiscoverySrc: src,
                     name: testProduct.name,
-                    dependencies: testProduct.underlyingProduct.targets.map { .target($0, conditions: []) }
+                    dependencies: testProduct.underlyingProduct.targets.map { .target($0, conditions: []) },
+                    testDiscoverySrc: src
                 )
                 let testManifestTarget = ResolvedTarget(
                     target: swiftTarget,
-                    dependencies: testProduct.targets.map { .target($0, conditions: []) }
+                    dependencies: testProduct.targets.map { .target($0, conditions: []) },
+                    defaultLocalization: .none, // safe since this is a derived target
+                    platforms: .init(declared: [], derived: []) // safe since this is a derived target
                 )
 
                 let target = try SwiftTargetBuildDescription(
+                    package: package,
                     target: testManifestTarget,
                     toolsVersion: toolsVersion,
                     buildParameters: buildParameters,
                     isTestTarget: true,
                     isTestDiscoveryTarget: true,
-                    fileSystem: fileSystem
+                    fileSystem: fileSystem,
+                    observabilityScope: observabilityScope
                 )
 
                 result.append((testProduct, target))
@@ -1623,28 +1703,11 @@ public class BuildPlan {
         return result
     }
 
-    @available(*, deprecated, message: "use observability system instead")
-    public convenience init(
-        buildParameters: BuildParameters,
-        graph: PackageGraph,
-        buildToolPluginInvocationResults: [ResolvedTarget: [BuildToolPluginInvocationResult]] = [:],
-        prebuildCommandResults: [ResolvedTarget: [PrebuildCommandResult]] = [:],
-        diagnostics: DiagnosticsEngine,
-        fileSystem: FileSystem
-    ) throws {
-        let observabilitySystem = ObservabilitySystem(diagnosticEngine: diagnostics)
-        try self.init(
-            buildParameters: buildParameters,
-            graph: graph,
-            fileSystem: fileSystem,
-            observabilityScope: observabilitySystem.topScope
-        )
-    }
-
     /// Create a build plan with build parameters and a package graph.
     public init(
         buildParameters: BuildParameters,
         graph: PackageGraph,
+        additionalFileRules: [FileRuleDescription] = [],
         buildToolPluginInvocationResults: [ResolvedTarget: [BuildToolPluginInvocationResult]] = [:],
         prebuildCommandResults: [ResolvedTarget: [PrebuildCommandResult]] = [:],
         fileSystem: FileSystem,
@@ -1664,7 +1727,6 @@ public class BuildPlan {
         var targetMap = [ResolvedTarget: TargetBuildDescription]()
         var pluginDescriptions = [PluginDescription]()
         for target in graph.allTargets.sorted(by: { $0.name < $1.name }) {
-
             // Validate the product dependencies of this target.
             for dependency in target.dependencies {
                 switch dependency {
@@ -1672,27 +1734,33 @@ public class BuildPlan {
                 case .product(let product, _):
                     if buildParameters.triple.isDarwin() {
                         try BuildPlan.validateDeploymentVersionOfProductDependency(
-                            product,
+                            product: product,
                             forTarget: target,
                             observabilityScope: self.observabilityScope
                         )
                     }
                 }
             }
-            
+
             // Determine the appropriate tools version to use for the target.
             // This can affect what flags to pass and other semantics.
             let toolsVersion = graph.package(for: target)?.manifest.toolsVersion ?? .v5_5
 
             switch target.underlyingTarget {
             case is SwiftTarget:
+                guard let package = graph.package(for: target) else {
+                    throw InternalError("package not found for \(target)")
+                }
                 targetMap[target] = try .swift(SwiftTargetBuildDescription(
+                    package: package,
                     target: target,
                     toolsVersion: toolsVersion,
+                    additionalFileRules: additionalFileRules,
                     buildParameters: buildParameters,
                     buildToolPluginInvocationResults: buildToolPluginInvocationResults[target] ?? [],
                     prebuildCommandResults: prebuildCommandResults[target] ?? [],
-                    fileSystem: fileSystem)
+                    fileSystem: fileSystem,
+                    observabilityScope: observabilityScope)
                 )
             case is ClangTarget:
                 targetMap[target] = try .clang(ClangTargetBuildDescription(
@@ -1740,11 +1808,14 @@ public class BuildPlan {
         // Create product description for each product we have in the package graph except
         // for automatic libraries and plugins, because they don't produce any output.
         for product in graph.allProducts where product.type != .library(.automatic) && product.type != .plugin {
-
+            guard let package = graph.package(for: product) else {
+                throw InternalError("unknown package for \(product)")
+            }
             // Determine the appropriate tools version to use for the product.
             // This can affect what flags to pass and other semantics.
-            let toolsVersion = graph.package(for: product)?.manifest.toolsVersion ?? .v5_5
+            let toolsVersion = package.manifest.toolsVersion
             productMap[product] = try ProductBuildDescription(
+                package: package,
                 product: product,
                 toolsVersion: toolsVersion,
                 buildParameters: buildParameters,
@@ -1756,24 +1827,22 @@ public class BuildPlan {
         self.productMap = productMap
         self.targetMap = targetMap
         self.pluginDescriptions = pluginDescriptions
-        
+
         // Finally plan these targets.
         try plan()
     }
 
     static func validateDeploymentVersionOfProductDependency(
-        _ product: ResolvedProduct,
+        product: ResolvedProduct,
         forTarget target: ResolvedTarget,
         observabilityScope: ObservabilityScope
     ) throws {
-        // Get the first target as supported platforms are on the top-level.
-        // This will need to become a bit complicated once we have target-level platform support.
-        let productTarget = product.underlyingProduct.targets[0]
-
-        guard let productPlatform = productTarget.getSupportedPlatform(for: .macOS) else {
-            throw StringError("Expected supported platform macOS in product target \(productTarget)")
+        // Supported platforms are defined at the package level.
+        // This will need to become a bit complicated once we have target-level or product-level platform support.
+        guard let productPlatform = product.platforms.getDerived(for: .macOS) else {
+            throw StringError("Expected supported platform macOS in product \(product)")
         }
-        guard let targetPlatform = target.underlyingTarget.getSupportedPlatform(for: .macOS) else {
+        guard let targetPlatform = target.platforms.getDerived(for: .macOS) else {
             throw StringError("Expected supported platform macOS in target \(target)")
         }
 
@@ -1855,7 +1924,7 @@ public class BuildPlan {
 
                 // Based on the debugging strategy, we either need to pass swiftmodule paths to the
                 // product or link in the wrapped module object. This is required for properly debugging
-                // Swift products. Debugging statergy is computed based on the current platform we're
+                // Swift products. Debugging strategy is computed based on the current platform we're
                 // building for and is nil for the release configuration.
                 switch buildParameters.debuggingStrategy {
                 case .swiftAST:
@@ -1908,7 +1977,7 @@ public class BuildPlan {
         let nodes: [ResolvedTarget.Dependency] = product.targets.map { .target($0, conditions: []) }
         let allTargets = try topologicalSort(nodes, successors: { dependency in
             switch dependency {
-            // Include all the depenencies of a target.
+            // Include all the dependencies of a target.
             case .target(let target, _):
                 return target.dependencies.filter { $0.satisfies(self.buildEnvironment) }
 
@@ -2119,7 +2188,7 @@ public class BuildPlan {
     /// importing the modules in the package graph.
     public func createREPLArguments() -> [String] {
         let buildPath = buildParameters.buildPath.pathString
-        var arguments = ["-I" + buildPath, "-L" + buildPath]
+        var arguments = ["repl", "-I" + buildPath, "-L" + buildPath]
 
         // Link the special REPL product that contains all of the library targets.
         let replProductName = graph.rootPackages[0].identity.description + Product.replProductSuffix
@@ -2224,11 +2293,9 @@ private extension Basics.Diagnostic {
 }
 
 extension BuildParameters {
-    /// Returns a target's bundle path inside the build directory.
-    fileprivate func bundlePath(for target: ResolvedTarget) -> AbsolutePath? {
-        target.underlyingTarget.bundleName
-        .map{ $0 + triple.nsbundleExtension }
-        .map(buildPath.appending(component:))
+    /// Returns a named bundle's path inside the build directory.
+    fileprivate func bundlePath(named name: String) -> AbsolutePath {
+        return buildPath.appending(component: name + triple.nsbundleExtension)
     }
 }
 
@@ -2252,7 +2319,7 @@ private func generateResourceInfoPlist(
     target: ResolvedTarget,
     path: AbsolutePath
 ) throws -> Bool {
-    guard let defaultLocalization = target.underlyingTarget.defaultLocalization else {
+    guard let defaultLocalization = target.defaultLocalization else {
         return false
     }
 
@@ -2272,8 +2339,19 @@ private func generateResourceInfoPlist(
     return true
 }
 
-fileprivate extension TSCUtility.Triple {
-    var isSupportingStaticStdlib: Bool {
+extension TSCUtility.Triple {
+    fileprivate var isSupportingStaticStdlib: Bool {
         isLinux() || arch == .wasm32
+    }
+}
+
+extension ResolvedPackage {
+    fileprivate var isRemote: Bool {
+        switch self.underlyingPackage.manifest.packageKind {
+        case .registry, .remoteSourceControl, .localSourceControl:
+            return true
+        case .root, .fileSystem:
+            return false
+        }
     }
 }

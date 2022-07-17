@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import TSCBasic
@@ -153,7 +155,7 @@ public final class Manifest {
     /// Returns the targets required for a particular product filter.
     public func targetsRequired(for productFilter: ProductFilter) -> [TargetDescription] {
         #if ENABLE_TARGET_BASED_DEPENDENCY_RESOLUTION
-        // If we have already calcualted it, returned the cached value.
+        // If we have already calculated it, returned the cached value.
         if let targets = _requiredTargets[productFilter] {
             return targets
         } else {
@@ -198,6 +200,12 @@ public final class Manifest {
                     requiredDependencies.insert(dependency.identity)
                 }
             }
+
+            target.pluginUsages?.forEach {
+                if let dependency = self.packageDependency(referencedBy: $0) {
+                    requiredDependencies.insert(dependency.identity)
+                }
+            }
         }
 
         return self.dependencies.filter { requiredDependencies.contains($0.identity) }
@@ -206,6 +214,7 @@ public final class Manifest {
 
     /// Returns the targets required for building the provided products.
     public func targetsRequired(for products: [ProductDescription]) -> [TargetDescription] {
+        let productsByName = Dictionary(products.map({ ($0.name, $0) }), uniquingKeysWith: { $1 })
         let targetsByName = Dictionary(targets.map({ ($0.name, $0) }), uniquingKeysWith: { $1 })
         let productTargetNames = products.flatMap({ $0.targets })
 
@@ -225,7 +234,13 @@ public final class Manifest {
                 let plugins: [String] = target.pluginUsages?.compactMap { pluginUsage in
                     switch pluginUsage {
                     case .plugin(name: let name, package: nil):
-                        return targetsByName.keys.contains(name) ? name : nil
+                        if targetsByName.keys.contains(name) {
+                            return name
+                        } else if let targetName = productsByName[name]?.targets.first {
+                            return targetName
+                        } else {
+                            return nil
+                        }
                     default:
                         return nil
                     }
@@ -305,6 +320,19 @@ public final class Manifest {
 
         return packageDependency(referencedBy: packageName)
     }
+
+    /// Finds the package dependency referenced by the specified plugin usage.
+    /// - Returns: Returns `nil` if  the used plugin is from the same package or if the package the used plugin is from cannot be found.
+    public func packageDependency(
+        referencedBy pluginUsage: TargetDescription.PluginUsage) -> PackageDependency? {
+        switch pluginUsage {
+        case .plugin(_, let .some(package)):
+            return packageDependency(referencedBy: package)
+        default:
+            return nil
+        }
+    }
+
     private func packageDependency(
         referencedBy packageName: String
     ) -> PackageDependency? {
@@ -328,7 +356,7 @@ public final class Manifest {
     ///
     /// - Parameters:
     ///   - targetDependency: The target dependency to register.
-    ///   - registry: The registry in which to record the assocation.
+    ///   - registry: The registry in which to record the association.
     ///   - availablePackages: The set of available packages.
     private func register(
         targetDependency: TargetDescription.Dependency,
@@ -387,7 +415,7 @@ public final class Manifest {
     ///
     /// - Parameters:
     ///   - requiredPlugIn: The plug‐in to register.
-    ///   - registry: The registry in which to record the assocation.
+    ///   - registry: The registry in which to record the association.
     ///   - availablePackages: The set of available packages.
     private func register(
         requiredPlugIn: TargetDescription.PluginUsage,

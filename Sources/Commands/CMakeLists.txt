@@ -1,4 +1,4 @@
-# This source file is part of the Swift.org open source project
+# This source file is part of the Swift open source project
 #
 # Copyright (c) 2014 - 2022 Apple Inc. and the Swift project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
@@ -7,12 +7,8 @@
 # See http://swift.org/CONTRIBUTORS.txt for Swift project authors
 
 add_library(Commands
-  APIDigester.swift
-  Describe.swift
-  GenerateLinuxMain.swift
-  MultiRootSupport.swift
+
   Options.swift
-  show-dependencies.swift
   Snippets/CardEvent.swift
   Snippets/Cards/SnippetCard.swift
   Snippets/Cards/SnippetGroupCard.swift
@@ -27,9 +23,15 @@ add_library(Commands
   SwiftRunTool.swift
   SwiftTestTool.swift
   SwiftTool.swift
-  SymbolGraphExtract.swift
-  TestingSupport.swift
-  WatchmanHelper.swift)
+  Utilities/APIDigester.swift
+  Utilities/DependenciesSerializer.swift
+  Utilities/Describe.swift
+  Utilities/DOTManifestSerializer.swift
+  Utilities/GenerateLinuxMain.swift
+  Utilities/MultiRootSupport.swift
+  Utilities/SymbolGraphExtract.swift
+  Utilities/TestingSupport.swift
+  Utilities/WatchmanHelper.swift)
 target_link_libraries(Commands PUBLIC
   ArgumentParser
   Basics
@@ -43,12 +45,8 @@ target_link_libraries(Commands PUBLIC
   Workspace
   XCBuildSupport
   Xcodeproj)
-if(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin)
-  if(Foundation_FOUND)
-    target_link_libraries(Commands PUBLIC
-      FoundationXML)
-  endif()
-endif()
+target_link_libraries(Commands PRIVATE
+  $<$<NOT:$<PLATFORM_ID:Darwin>>:FoundationXML>)
 # NOTE(compnerd) workaround for CMake not setting up include flags yet
 set_target_properties(Commands PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES ${CMAKE_Swift_MODULE_DIRECTORY})

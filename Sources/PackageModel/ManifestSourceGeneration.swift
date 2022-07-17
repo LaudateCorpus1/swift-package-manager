@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2020 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2020-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Foundation
 
@@ -396,6 +398,9 @@ fileprivate extension SourceCodeFragment {
         case .yum(let names):
             let params = [SourceCodeFragment(strings: names)]
             self.init(enum: "yum", subnodes: params)
+        case .nuget(let names):
+            let params = [SourceCodeFragment(strings: names)]
+            self.init(enum: "nuget", subnodes: params)
         }
     }
 
@@ -560,13 +565,13 @@ public struct SourceCodeFragment {
     /// A literal prefix to emit at the start of the source code fragment.
     var literal: String
     
-    /// The type of delimeters to use around the subfragments (if any).
+    /// The type of delimiters to use around the subfragments (if any).
     var delimiters: Delimiters
     
     /// Whether or not to emit newlines before the subfragments (if any).
     var multiline: Bool
     
-    /// Any subfragments; no delimeters are emitted if none.
+    /// Any subfragments; no delimiters are emitted if none.
     var subnodes: [SourceCodeFragment]?
     
     /// Type of delimiters to emit around any subfragments.

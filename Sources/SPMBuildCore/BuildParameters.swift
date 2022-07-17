@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import class Foundation.ProcessInfo
 
@@ -70,6 +72,13 @@ public struct BuildParameters: Encodable {
         }
     }
 
+    /// A mode for explicit import checking
+    public enum TargetDependencyImportCheckingMode : Codable {
+        case none
+        case warn
+        case error
+    }
+
     /// The path to the data directory.
     public var dataPath: AbsolutePath
 
@@ -91,9 +100,6 @@ public struct BuildParameters: Encodable {
 
     /// Extra build flags.
     public var flags: BuildFlags
-
-    /// The tools version to use.
-    public var toolsVersion: ToolsVersion
 
     /// How many jobs should llbuild and the Swift compiler spawn
     public var jobs: UInt32
@@ -129,8 +135,9 @@ public struct BuildParameters: Encodable {
     /// Whether to use the explicit module build flow (with the integrated driver)
     public var useExplicitModuleBuild: Bool
 
-    /// Whether to output a graphviz file visualization of the combined job graph for all targets
-    public var printManifestGraphviz: Bool
+    /// A flag that inidcates this build should check whether targets only import
+    /// their explicitly-declared dependencies
+    public var explicitTargetDependencyImportCheckingMode: TargetDependencyImportCheckingMode
 
     /// Whether to create dylibs for dynamic library products.
     public var shouldCreateDylibForDynamicProducts: Bool
@@ -165,10 +172,10 @@ public struct BuildParameters: Encodable {
 
     /// Extra arguments to pass when using xcbuild.
     public var xcbuildFlags: [String]
-        
+
     // Whether building for testability is enabled.
     public var enableTestability: Bool
-    
+
     // What strategy to use to discover tests
     public var testDiscoveryStrategy: TestDiscoveryStrategy
 
@@ -188,7 +195,6 @@ public struct BuildParameters: Encodable {
         archs: [String] = [],
         flags: BuildFlags,
         xcbuildFlags: [String] = [],
-        toolsVersion: ToolsVersion = ToolsVersion.currentToolsVersion,
         jobs: UInt32 = UInt32(ProcessInfo.processInfo.activeProcessorCount),
         shouldLinkStaticSwiftStdlib: Bool = false,
         shouldEnableManifestCaching: Bool = false,
@@ -202,24 +208,23 @@ public struct BuildParameters: Encodable {
         useIntegratedSwiftDriver: Bool = false,
         useExplicitModuleBuild: Bool = false,
         isXcodeBuildSystemEnabled: Bool = false,
-        printManifestGraphviz: Bool = false,
         enableTestability: Bool? = nil,
         forceTestDiscovery: Bool = false,
+        explicitTargetDependencyImportCheckingMode: TargetDependencyImportCheckingMode = .none,
         linkerDeadStrip: Bool = true,
         colorizedOutput: Bool = false,
         verboseOutput: Bool = false
     ) {
-        let triple = destinationTriple ?? .getHostTriple(usingSwiftCompiler: toolchain.swiftCompiler)
+        let triple = destinationTriple ?? .getHostTriple(usingSwiftCompiler: toolchain.swiftCompilerPath)
 
         self.dataPath = dataPath
         self.configuration = configuration
         self._toolchain = _Toolchain(toolchain: toolchain)
-        self.hostTriple = hostTriple ?? .getHostTriple(usingSwiftCompiler: toolchain.swiftCompiler)
+        self.hostTriple = hostTriple ?? .getHostTriple(usingSwiftCompiler: toolchain.swiftCompilerPath)
         self.triple = triple
         self.archs = archs
         self.flags = flags
         self.xcbuildFlags = xcbuildFlags
-        self.toolsVersion = toolsVersion
         self.jobs = jobs
         self.shouldLinkStaticSwiftStdlib = shouldLinkStaticSwiftStdlib
         self.shouldEnableManifestCaching = shouldEnableManifestCaching
@@ -233,7 +238,6 @@ public struct BuildParameters: Encodable {
         self.useIntegratedSwiftDriver = useIntegratedSwiftDriver
         self.useExplicitModuleBuild = useExplicitModuleBuild
         self.isXcodeBuildSystemEnabled = isXcodeBuildSystemEnabled
-        self.printManifestGraphviz = printManifestGraphviz
         // decide on testability based on debug/release config
         // the goals of this being based on the build configuration is
         // that `swift build` followed by a `swift test` will need to do minimal rebuilding
@@ -244,6 +248,7 @@ public struct BuildParameters: Encodable {
         self.enableTestability = enableTestability ?? (.debug == configuration)
         // decide if to enable the use of test manifests based on platform. this is likely to change in the future
         self.testDiscoveryStrategy = triple.isDarwin() ? .objectiveC : .manifest(generate: forceTestDiscovery)
+        self.explicitTargetDependencyImportCheckingMode = explicitTargetDependencyImportCheckingMode
         self.linkerDeadStrip = linkerDeadStrip
         self.colorizedOutput = colorizedOutput
         self.verboseOutput = verboseOutput
@@ -344,13 +349,13 @@ private struct _Toolchain: Encodable {
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(toolchain.swiftCompiler, forKey: .swiftCompiler)
+        try container.encode(toolchain.swiftCompilerPath, forKey: .swiftCompiler)
         try container.encode(toolchain.getClangCompiler(), forKey: .clangCompiler)
 
         try container.encode(toolchain.extraCCFlags, forKey: .extraCCFlags)
         try container.encode(toolchain.extraCPPFlags, forKey: .extraCPPFlags)
         try container.encode(toolchain.extraSwiftCFlags, forKey: .extraSwiftCFlags)
-        try container.encode(toolchain.swiftCompiler, forKey: .swiftCompiler)
+        try container.encode(toolchain.swiftCompilerPath, forKey: .swiftCompiler)
     }
 }
 

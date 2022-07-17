@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Foundation
 
@@ -23,7 +25,7 @@ public final class SQLiteBackedCache<Value: Codable>: Closable {
     public let configuration: SQLiteBackedCacheConfiguration
 
     private var state = State.idle
-    private let stateLock = Lock()
+    private let stateLock = NSLock()
 
     private let jsonEncoder: JSONEncoder
     private let jsonDecoder: JSONDecoder

@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2018 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2018 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import XCTest
 import TSCBasic
@@ -18,9 +20,17 @@ private extension ResolvedTarget {
     convenience init(name: String, deps: ResolvedTarget...) {
         self.init(
             target: SwiftTarget(
-                name: name, type: .library, 
-                sources: Sources(paths: [], root: AbsolutePath("/")), dependencies: [], swiftVersion: .v4),
-            dependencies: deps.map { .target($0, conditions: []) })
+                name: name,
+                type: .library,
+                path: .root,
+                sources: Sources(paths: [], root: AbsolutePath("/")),
+                dependencies: [],
+                swiftVersion: .v4
+            ),
+            dependencies: deps.map { .target($0, conditions: []) },
+            defaultLocalization: nil,
+            platforms: .init(declared: [], derived: [])
+        )
     }
 }
 

@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Foundation
 
@@ -259,13 +261,12 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
         settings[.SDKROOT] = "auto"
         settings[.SDK_VARIANT] = "auto"
         settings[.SKIP_INSTALL] = "YES"
-        let firstTarget = package.targets.first(where: { $0.type != .test })?.underlyingTarget ?? package.targets.first?.underlyingTarget
-        settings[.MACOSX_DEPLOYMENT_TARGET] = firstTarget?.deploymentTarget(for: .macOS)
-        settings[.IPHONEOS_DEPLOYMENT_TARGET] = firstTarget?.deploymentTarget(for: .iOS)
-        settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst] = firstTarget?.deploymentTarget(for: .macCatalyst)
-        settings[.TVOS_DEPLOYMENT_TARGET] = firstTarget?.deploymentTarget(for: .tvOS)
-        settings[.WATCHOS_DEPLOYMENT_TARGET] = firstTarget?.deploymentTarget(for: .watchOS)
-        settings[.DRIVERKIT_DEPLOYMENT_TARGET] = firstTarget?.deploymentTarget(for: .driverKit)
+        settings[.MACOSX_DEPLOYMENT_TARGET] = package.platforms.deploymentTarget(for: .macOS)
+        settings[.IPHONEOS_DEPLOYMENT_TARGET] = package.platforms.deploymentTarget(for: .iOS)
+        settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst] = package.platforms.deploymentTarget(for: .macCatalyst)
+        settings[.TVOS_DEPLOYMENT_TARGET] = package.platforms.deploymentTarget(for: .tvOS)
+        settings[.WATCHOS_DEPLOYMENT_TARGET] = package.platforms.deploymentTarget(for: .watchOS)
+        settings[.DRIVERKIT_DEPLOYMENT_TARGET] = package.platforms.deploymentTarget(for: .driverKit)
         settings[.DYLIB_INSTALL_NAME_BASE] = "@rpath"
         settings[.USE_HEADERMAP] = "NO"
         settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS] = ["$(inherited)", "SWIFT_PACKAGE"]
@@ -289,7 +290,7 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
 
         PlatformRegistry.default.knownPlatforms.forEach {
             guard let platform = PIF.BuildSettings.Platform.from(platform: $0) else { return }
-            guard let supportedPlatform = firstTarget?.getSupportedPlatform(for: $0) else { return }
+            guard let supportedPlatform = package.platforms.getDerived(for: $0) else { return }
             if !supportedPlatform.options.isEmpty {
                 settings[.SPECIALIZATION_SDK_OPTIONS, for: platform] = supportedPlatform.options
             }
@@ -415,10 +416,10 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
 
         // Tests can have a custom deployment target based on the minimum supported by XCTest.
         if mainTarget.underlyingTarget.type == .test {
-            settings[.MACOSX_DEPLOYMENT_TARGET] = mainTarget.underlyingTarget.deploymentTarget(for: .macOS)
-            settings[.IPHONEOS_DEPLOYMENT_TARGET] = mainTarget.underlyingTarget.deploymentTarget(for: .iOS)
-            settings[.TVOS_DEPLOYMENT_TARGET] = mainTarget.underlyingTarget.deploymentTarget(for: .tvOS)
-            settings[.WATCHOS_DEPLOYMENT_TARGET] = mainTarget.underlyingTarget.deploymentTarget(for: .watchOS)
+            settings[.MACOSX_DEPLOYMENT_TARGET] = mainTarget.platforms.deploymentTarget(for: .macOS)
+            settings[.IPHONEOS_DEPLOYMENT_TARGET] = mainTarget.platforms.deploymentTarget(for: .iOS)
+            settings[.TVOS_DEPLOYMENT_TARGET] = mainTarget.platforms.deploymentTarget(for: .tvOS)
+            settings[.WATCHOS_DEPLOYMENT_TARGET] = mainTarget.platforms.deploymentTarget(for: .watchOS)
         }
 
         if product.type == .executable {
@@ -582,6 +583,9 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
         // Disable code coverage linker flags since we're producing .o files. Otherwise, we will run into duplicated
         // symbols when there are more than one targets that produce .o as their product.
         settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS] = "NO"
+        if let aliases = target.moduleAliases {
+            settings[.SWIFT_MODULE_ALIASES] = aliases.map{ $0.key + "=" + $0.value }
+        }
 
         // Create a set of build settings that will be imparted to any target that depends on this one.
         var impartedSettings = PIF.BuildSettings()
@@ -860,7 +864,7 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
             for assignment in assignments {
                 var value = assignment.value
                 if setting == .HEADER_SEARCH_PATHS {
-                    value = value.map { target.sources.root.appending(RelativePath($0)).pathString }
+                    value = value.map { AbsolutePath($0, relativeTo: target.sources.root).pathString }
                 }
 
                 if let platforms = assignment.platforms {
@@ -1377,9 +1381,9 @@ extension Array where Element == ResolvedTarget.Dependency {
     }
 }
 
-extension Target {
+extension SupportedPlatforms {
     func deploymentTarget(for platform: PackageModel.Platform) -> String? {
-        if let supportedPlatform = getSupportedPlatform(for: platform) {
+        if let supportedPlatform = self.getDerived(for: platform) {
             return supportedPlatform.version.versionString
         } else if platform == .macCatalyst {
             // If there is no deployment target specified for Mac Catalyst, fall back to the iOS deployment target.
@@ -1390,7 +1394,9 @@ extension Target {
             return nil
         }
     }
+}
 
+extension Target {
     var isCxx: Bool {
         (self as? ClangTarget)?.isCXX ?? false
     }
@@ -1588,7 +1594,7 @@ extension PIF.PlatformFilter {
         .init(platform: "windows", environment: "gnu"),
     ]
 
-    /// Andriod platform filters.
+    /// Android platform filters.
     public static let androidFilters: [PIF.PlatformFilter] = [
         .init(platform: "linux", environment: "android"),
         .init(platform: "linux", environment: "androideabi"),

@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import TSCBasic
 import PackageModel
@@ -42,7 +44,7 @@ public final class ResolvedTarget {
             }
         }
 
-        /// Returns the direct dependencies of the underlying dependency, accross the package graph.
+        /// Returns the direct dependencies of the underlying dependency, across the package graph.
         public var dependencies: [ResolvedTarget.Dependency] {
             switch self {
             case .target(let target, _):
@@ -85,17 +87,17 @@ public final class ResolvedTarget {
         return dependencies.filter { $0.satisfies(environment) }
     }
 
-    /// Returns the recursive dependencies, accross the whole package-graph.
+    /// Returns the recursive dependencies, across the whole package-graph.
     public func recursiveDependencies() throws -> [Dependency] {
         return try topologicalSort(self.dependencies) { $0.dependencies }
     }
 
-    /// Returns the recursive target dependencies, accross the whole package-graph.
+    /// Returns the recursive target dependencies, across the whole package-graph.
     public func recursiveTargetDependencies() throws -> [ResolvedTarget] {
         return try topologicalSort(self.dependencies) { $0.dependencies }.compactMap { $0.target }
     }
 
-    /// Returns the recursive dependencies, accross the whole package-graph, which satisfy the input build environment,
+    /// Returns the recursive dependencies, across the whole package-graph, which satisfy the input build environment,
     /// based on their conditions.
     /// - Parameters:
     ///     - environment: The build environment to use to filter dependencies on.
@@ -127,10 +129,23 @@ public final class ResolvedTarget {
         return underlyingTarget.sources
     }
 
+    /// The default localization for resources.
+    public let defaultLocalization: String?
+
+    /// The list of platforms that are supported by this target.
+    public let platforms: SupportedPlatforms
+
     /// Create a target instance.
-    public init(target: Target, dependencies: [Dependency]) {
+    public init(
+        target: Target,
+        dependencies: [Dependency],
+        defaultLocalization: String?,
+        platforms: SupportedPlatforms
+    ) {
         self.underlyingTarget = target
         self.dependencies = dependencies
+        self.defaultLocalization = defaultLocalization
+        self.platforms = platforms
     }
 }
 

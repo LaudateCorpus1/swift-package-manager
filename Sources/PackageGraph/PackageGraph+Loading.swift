@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import OrderedCollections
@@ -24,10 +26,11 @@ extension PackageGraph {
         externalManifests: OrderedCollections.OrderedDictionary<PackageIdentity, (manifest: Manifest, fs: FileSystem)>,
         requiredDependencies: Set<PackageReference> = [],
         unsafeAllowedPackages: Set<PackageReference> = [],
-        binaryArtifacts: [BinaryArtifact] = [],
-        xcTestMinimumDeploymentTargets: [PackageModel.Platform:PlatformVersion] = MinimumDeploymentTarget.default.xcTestMinimumDeploymentTargets,
+        binaryArtifacts: [PackageIdentity: [String: BinaryArtifact]],
         shouldCreateMultipleTestProducts: Bool = false,
         createREPLProduct: Bool = false,
+        customPlatformsRegistry: PlatformRegistry? = .none,
+        customXCTestMinimumDeploymentTargets: [PackageModel.Platform: PlatformVersion]? = .none,
         fileSystem: FileSystem,
         observabilityScope: ObservabilityScope
     ) throws -> PackageGraph {
@@ -113,8 +116,7 @@ extension PackageGraph {
                     productFilter: node.productFilter,
                     path: packagePath,
                     additionalFileRules: additionalFileRules,
-                    binaryArtifacts: binaryArtifacts,
-                    xcTestMinimumDeploymentTargets: xcTestMinimumDeploymentTargets,
+                    binaryArtifacts: binaryArtifacts[node.identity] ?? [:],                
                     shouldCreateMultipleTestProducts: shouldCreateMultipleTestProducts,
                     createREPLProduct: manifest.packageKind.isRoot ? createREPLProduct : false,
                     fileSystem: node.fileSystem,
@@ -139,6 +141,8 @@ extension PackageGraph {
             manifestToPackage: manifestToPackage,
             rootManifests: root.manifests,
             unsafeAllowedPackages: unsafeAllowedPackages,
+            platformRegistry: customPlatformsRegistry ?? .default,
+            xcTestMinimumDeploymentTargets: customXCTestMinimumDeploymentTargets ?? MinimumDeploymentTarget.default.xcTestMinimumDeploymentTargets,
             observabilityScope: observabilityScope
         )
 
@@ -195,32 +199,6 @@ private func checkAllDependenciesAreUsed(_ rootPackages: [ResolvedPackage], obse
     }
 }
 
-extension Package {
-    // Add module aliases specified for applicable targets
-    fileprivate func setModuleAliasesForTargets(with moduleAliasMap: [String: String]) {
-        // Set module aliases for each target's dependencies
-        for (entryName, entryAlias) in moduleAliasMap {
-            for target in self.targets {
-                // First add dependency module aliases for this target
-                if entryName != target.name {
-                    target.addModuleAlias(for: entryName, as: entryAlias)
-                }
-            }
-        }
-        
-        // This loop should run after the loop above as it may rename the target
-        // as an alias if specified
-        for (entryName, entryAlias) in moduleAliasMap {
-            for target in self.targets {
-                // Then set this target to be aliased if specified
-                if entryName == target.name  {
-                    target.addModuleAlias(for: target.name, as: entryAlias)
-                }
-            }
-        }
-    }
-}
-
 fileprivate extension ResolvedProduct {
     /// Returns true if and only if the product represents a command plugin target.
     var isCommandPlugin: Bool {
@@ -239,6 +217,8 @@ private func createResolvedPackages(
     // FIXME: This shouldn't be needed once <rdar://problem/33693433> is fixed.
     rootManifests: [PackageIdentity: Manifest],
     unsafeAllowedPackages: Set<PackageReference>,
+    platformRegistry: PlatformRegistry,
+    xcTestMinimumDeploymentTargets: [PackageModel.Platform: PlatformVersion],
     observabilityScope: ObservabilityScope
 ) throws -> [ResolvedPackage] {
 
@@ -264,8 +244,9 @@ private func createResolvedPackages(
         return ($0.package.identity, $0)
     }
 
-    // Gather all module aliases specified for targets in all dependent packages
-    let pkgToAliasesMap = gatherModuleAliases(for: rootManifests.first?.key, with: packagesByIdentity, onError: observabilityScope)
+    // Resolve module aliases, if specified, for targets and their dependencies
+    // across packages. Aliasing will result in target renaming.
+    let moduleAliasingUsed = try resolveModuleAliases(packageBuilders: packageBuilders, observabilityScope: observabilityScope)
 
     // Scan and validate the dependencies
     for packageBuilder in packageBuilders {
@@ -276,10 +257,6 @@ private func createResolvedPackages(
             metadata: package.diagnosticsMetadata
         )
         
-        if let aliasMap = pkgToAliasesMap[package.identity] {
-            package.setModuleAliasesForTargets(with: aliasMap)
-        }
-
         var dependencies = OrderedCollections.OrderedDictionary<PackageIdentity, ResolvedPackageBuilder>()
         var dependenciesByNameForTargetDependencyResolution = [String: ResolvedPackageBuilder]()
 
@@ -356,6 +333,22 @@ private func createResolvedPackages(
 
         packageBuilder.dependencies = Array(dependencies.values)
 
+        packageBuilder.defaultLocalization = package.manifest.defaultLocalization
+
+        packageBuilder.platforms = computePlatforms(
+            package: package,
+            usingXCTest: false,
+            platformRegistry: platformRegistry,
+            xcTestMinimumDeploymentTargets: xcTestMinimumDeploymentTargets
+        )
+
+        let testPlatforms = computePlatforms(
+            package: package,
+            usingXCTest: true,
+            platformRegistry: platformRegistry,
+            xcTestMinimumDeploymentTargets: xcTestMinimumDeploymentTargets
+        )
+
         // Create target builders for each target in the package.
         let targetBuilders = package.targets.map{ ResolvedTargetBuilder(target: $0, observabilityScope: observabilityScope) }
         packageBuilder.targets = targetBuilders
@@ -374,6 +367,8 @@ private func createResolvedPackages(
                     return nil
                 }
             }
+            targetBuilder.defaultLocalization = packageBuilder.defaultLocalization
+            targetBuilder.platforms = targetBuilder.target.type == .test ? testPlatforms : packageBuilder.platforms
         }
 
         // Create product builders for each product in the package. A product can only contain a target present in the same package.
@@ -388,25 +383,67 @@ private func createResolvedPackages(
     }
 
     // Find duplicate products in the package graph.
-    let duplicateProducts = packageBuilders
-        .flatMap({ $0.products })
-        .map({ $0.product })
-        .spm_findDuplicateElements(by: \.name)
-        .map({ $0[0].name })
+    let productList = packageBuilders.flatMap({ $0.products }).map({ $0.product })
 
-    // Emit diagnostics for duplicate products.
-    for productName in duplicateProducts {
-        let packages = packageBuilders
-            .filter({ $0.products.contains(where: { $0.product.name == productName }) })
-            .map{ $0.package.identity.description }
-            .sorted()
+    if moduleAliasingUsed {
+        // FIXME: If moduleAliasingUsed, we want to allow duplicate product names
+        // from different packages as often times the product name of a package is
+        // same as its target name which might have a conflict with the name of the
+        // product itself or its target from another package.
+        // The following is a workaround; eventually we want to allow duplicate product
+        // names even when module aliasing is not used, which is a cleaner solution.
+        // Ref rdar://94744134.
 
-        observabilityScope.emit(PackageGraphError.duplicateProduct(product: productName, packages: packages))
-    }
+        // We first divide the products by type which determines whether to use
+        // the product ID (unique, fully qualified name) or name to look up duplicates.
 
-    // Remove the duplicate products from the builders.
-    for packageBuilder in packageBuilders {
-        packageBuilder.products = packageBuilder.products.filter({ !duplicateProducts.contains($0.product.name) })
+        // There are no shared dirs/files created for automatic library products, so look
+        // up duplicates with the ID property for those products.
+        let autoLibProducts = productList
+            .filter{ $0.isDefaultLibrary }
+            .spm_findDuplicateElements(by: \.ID)
+            .map({ $0[0] })
+
+        // Building other products, i.e. static libs, dylibs, executables, result in
+        // shared dirs/files, e.g. Foo.product (dir), libFoo.dylib, etc., so we want
+        // to keep the original product names for those. Thus, use the name property
+        // to look up duplicates.
+        let otherProducts = productList
+            .filter{ !$0.isDefaultLibrary }
+            .spm_findDuplicateElements(by: \.name)
+            .map({ $0[0] })
+
+        let allProducts = autoLibProducts + otherProducts
+        // Emit diagnostics for duplicate products.
+        for dupProduct in allProducts {
+            let packages = packageBuilders
+                .filter({ $0.products.contains(where: { $0.product.isDefaultLibrary ? $0.product.ID == dupProduct.ID : $0.product.name == dupProduct.name }) })
+                .map{ $0.package.identity.description }
+                .sorted()
+            observabilityScope.emit(PackageGraphError.duplicateProduct(product: dupProduct.name, packages: packages))
+        }
+        // Remove the duplicate products from the builders.
+        let autoLibProductIDs = autoLibProducts.map{ $0.ID }
+        let otherProductNames = otherProducts.map{ $0.name }
+        for packageBuilder in packageBuilders {
+            packageBuilder.products = packageBuilder.products.filter { $0.product.isDefaultLibrary ? !autoLibProductIDs.contains($0.product.ID) : !otherProductNames.contains($0.product.name) }
+        }
+    } else {
+        let duplicateProducts = productList
+            .spm_findDuplicateElements(by: \.name)
+            .map({ $0[0] })
+        // Emit diagnostics for duplicate products.
+        for dupProduct in duplicateProducts {
+            let packages = packageBuilders
+                .filter({ $0.products.contains(where: { $0.product.name == dupProduct.name }) })
+                .map{ $0.package.identity.description }
+                .sorted()
+            observabilityScope.emit(PackageGraphError.duplicateProduct(product: dupProduct.name, packages: packages))
+        }
+        // Remove the duplicate products from the builders.
+        for packageBuilder in packageBuilders {
+            packageBuilder.products = packageBuilder.products.filter { !duplicateProducts.map{$0.name}.contains($0.product.name) }
+        }
     }
 
     // The set of all target names.
@@ -441,7 +478,7 @@ private func createResolvedPackages(
                 let explicit = Set(dependency.package.manifest.products.lazy.map({ $0.name }))
                 return dependency.products.filter({ explicit.contains($0.product.name) })
             })
-        let productDependencyMap = productDependencies.spm_createDictionary({ ($0.product.name, $0) })
+        let productDependencyMap = moduleAliasingUsed ? productDependencies.spm_createDictionary({ ($0.product.ID, $0) }) : productDependencies.spm_createDictionary({ ($0.product.name, $0) })
 
         // Establish dependencies in each target.
         for targetBuilder in packageBuilder.targets {
@@ -454,7 +491,9 @@ private func createResolvedPackages(
             // Establish product dependencies.
             for case .product(let productRef, let conditions) in targetBuilder.target.dependencies {
                 // Find the product in this package's dependency products.
-                guard let product = productDependencyMap[productRef.name] else {
+                // Look it up by ID if module aliasing is used, otherwise by name.
+                let product = moduleAliasingUsed ? productDependencyMap[productRef.ID] : productDependencyMap[productRef.name]
+                guard let product = product else {
                     // Only emit a diagnostic if there are no other diagnostics.
                     // This avoids flooding the diagnostics with product not
                     // found errors when there are more important errors to
@@ -519,84 +558,135 @@ private func createResolvedPackages(
             }
         }
     }
+
     return try packageBuilders.map{ try $0.construct() }
 }
 
-// Create a map between a package and module aliases specified for the targets in the package.
-private func gatherModuleAliases(for rootPkgID: PackageIdentity?,
-                                 with packagesByIdentity: [PackageIdentity: ResolvedPackageBuilder],
-                                 onError observabilityScope: ObservabilityScope) -> [PackageIdentity: [String: String]] {
-    var result = [PackageIdentity: [String: String]]()
-    
-    // There could be multiple root packages but the common cases involve
-    // just one root package; handling multiple roots is tracked rdar://88518683
-    if let rootPkg = rootPkgID {
-        var pkgStack = [PackageIdentity]()
-        walkPkgTreeAndGetModuleAliases(for: rootPkg, with: packagesByIdentity, onError: observabilityScope, using: &pkgStack, output: &result)
+fileprivate extension Product {
+    var isDefaultLibrary: Bool {
+        return type == .library(.automatic)
     }
-    return result
 }
 
-// Walk a package dependency tree and set the module aliases for targets in each package.
-// If multiple aliases are specified in upstream packages, aliases specified most downstream
-// will be used.
-private func walkPkgTreeAndGetModuleAliases(for pkgID: PackageIdentity,
-                                            with packagesByIdentity: [PackageIdentity: ResolvedPackageBuilder],
-                                            onError observabilityScope: ObservabilityScope,
-                                            using pkgStack: inout [PackageIdentity],
-                                            output result: inout [PackageIdentity: [String: String]]) {
-    // Get the builder first
-    if let builder = packagesByIdentity[pkgID] {
-        builder.package.targets.forEach { target in
-            target.dependencies.forEach { dep in
-                // Check if a dependency for this target has module aliases specified
-                if case let .product(prodRef, _) = dep {
-                    if let prodPkg = prodRef.package {
-                        if let prodModuleAliases = prodRef.moduleAliases {
-                            for (depName, depAlias) in prodModuleAliases {
-                                let prodPkgID = PackageIdentity.plain(prodPkg)
-                                if let existingAlias = result[prodPkgID, default: [:]][depName] {
-                                    // error if there are multiple aliases for
-                                    // a dependency target for a product
-                                    observabilityScope.emit(PackageGraphError.multipleModuleAliases(target: depName, product: prodRef.name, package: prodPkg, aliases: [existingAlias, depAlias]))
-                                    return
-                                }
+private func computePlatforms(
+    package: Package,
+    usingXCTest: Bool,
+    platformRegistry: PlatformRegistry,
+    xcTestMinimumDeploymentTargets: [PackageModel.Platform: PlatformVersion]
+) -> SupportedPlatforms {
 
-                                // Add the specified alias and the dependency package to a map
-                                result[prodPkgID, default: [:]][depName] = depAlias
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // If multiple aliases are specified in the package chain,
-            // use the ones specified most downstream to override
-            // upstream targets
-            for pkgInChain in pkgStack {
-                if let entry = result[pkgInChain],
-                   let aliasToOverride = entry[target.name] {
-                    result[pkgID, default: [:]][target.name] = aliasToOverride
-                    break
-                }
-            }
-            
-            // Add pkgID to a stack used to keep track of multiple
-            // aliases specified in the package chain. Need to add
-            // pkgID here, otherwise need pkgID != pkgInChain check
-            // in the for loop above
-            pkgStack.append(pkgID)
+    // the supported platforms as declared in the manifest
+    let declaredPlatforms: [SupportedPlatform] = package.manifest.platforms.map { platform in
+        let declaredPlatform = platformRegistry.platformByName[platform.platformName]
+            ?? PackageModel.Platform.custom(name: platform.platformName, oldestSupportedVersion: platform.version)
+        return SupportedPlatform(
+            platform: declaredPlatform,
+            version: .init(platform.version),
+            options: platform.options
+        )
+    }
+
+    // the derived platforms based on known minimum deployment target logic
+    var derivedPlatforms = [SupportedPlatform]()
+
+    /// Add each declared platform to the supported platforms list.
+    for platform in package.manifest.platforms {
+        let declaredPlatform = platformRegistry.platformByName[platform.platformName]
+            ?? PackageModel.Platform.custom(name: platform.platformName, oldestSupportedVersion: platform.version)
+        var version = PlatformVersion(platform.version)
+
+        if usingXCTest, let xcTestMinimumDeploymentTarget = xcTestMinimumDeploymentTargets[declaredPlatform], version < xcTestMinimumDeploymentTarget {
+            version = xcTestMinimumDeploymentTarget
         }
-        
-        // Recursively (depth-first) walk the package dependency tree
-        for pkgDep in builder.package.manifest.dependencies {
-            walkPkgTreeAndGetModuleAliases(for: pkgDep.identity, with: packagesByIdentity, onError: observabilityScope, using: &pkgStack, output: &result)
-            // Last added package has been looked up, so pop here
-            if !pkgStack.isEmpty {
-                pkgStack.removeLast()
+
+        // If the declared version is smaller than the oldest supported one, we raise the derived version to that.
+        if version < declaredPlatform.oldestSupportedVersion {
+            version = declaredPlatform.oldestSupportedVersion
+        }
+
+        let supportedPlatform = SupportedPlatform(
+            platform: declaredPlatform,
+            version: version,
+            options: platform.options
+        )
+
+        derivedPlatforms.append(supportedPlatform)
+    }
+
+    // Find the undeclared platforms.
+    let remainingPlatforms = Set(platformRegistry.platformByName.keys).subtracting(derivedPlatforms.map({ $0.platform.name }))
+
+    /// Start synthesizing for each undeclared platform.
+    for platformName in remainingPlatforms.sorted() {
+        let platform = platformRegistry.platformByName[platformName]!
+
+        let oldestSupportedVersion: PlatformVersion
+        if usingXCTest, let xcTestMinimumDeploymentTarget = xcTestMinimumDeploymentTargets[platform] {
+            oldestSupportedVersion = xcTestMinimumDeploymentTarget
+        } else if platform == .macCatalyst, let iOS = derivedPlatforms.first(where: { $0.platform == .iOS }) {
+            // If there was no deployment target specified for Mac Catalyst, fall back to the iOS deployment target.
+            oldestSupportedVersion = max(platform.oldestSupportedVersion, iOS.version)
+        } else {
+            oldestSupportedVersion = platform.oldestSupportedVersion
+        }
+
+        let supportedPlatform = SupportedPlatform(
+            platform: platform,
+            version: oldestSupportedVersion,
+            options: []
+        )
+
+        derivedPlatforms.append(supportedPlatform)
+    }
+
+    return SupportedPlatforms(
+        declared: declaredPlatforms.sorted(by: { $0.platform.name < $1.platform.name }),
+        derived: derivedPlatforms.sorted(by: { $0.platform.name < $1.platform.name })
+    )
+}
+
+// Track and override module aliases specified for targets in a package graph
+private func resolveModuleAliases(packageBuilders: [ResolvedPackageBuilder],
+                                  observabilityScope: ObservabilityScope) throws -> Bool {
+    // If there are no module aliases specified, return early
+    let hasAliases = packageBuilders.contains { $0.package.targets.contains {
+            $0.dependencies.contains { dep in
+                if case let .product(prodRef, _) = dep {
+                    return prodRef.moduleAliases != nil
+                }
+                return false
             }
         }
     }
+
+    guard hasAliases else { return false }
+    let aliasTracker = ModuleAliasTracker()
+    for packageBuilder in packageBuilders {
+        try aliasTracker.addTargetAliases(targets: packageBuilder.package.targets,
+                                          package: packageBuilder.package.identity)
+    }
+
+    // Track targets that need module aliases for each package
+    for packageBuilder in packageBuilders {
+        for product in packageBuilder.package.products {
+            aliasTracker.trackTargetsPerProduct(product: product,
+                                                package: packageBuilder.package.identity)
+        }
+    }
+
+    // Override module aliases upstream if needed
+    aliasTracker.propagateAliases(observabilityScope: observabilityScope)
+
+    // Validate sources (Swift files only) for modules being aliased.
+    // Needs to be done after `propagateAliases` since aliases defined
+    // upstream can be overriden.
+    for packageBuilder in packageBuilders {
+        for product in packageBuilder.package.products {
+            try aliasTracker.validateAndApplyAliases(product: product,
+                                                     package: packageBuilder.package.identity)
+        }
+    }
+    return true
 }
 
 /// A generic builder for `Resolved` models.
@@ -606,7 +696,7 @@ private class ResolvedBuilder<T> {
 
     /// Construct the object with the accumulated data.
     ///
-    /// Note that once the object is constucted, future calls to
+    /// Note that once the object is constructed, future calls to
     /// this method will return the same object.
     final func construct() throws -> T {
         if let constructedObject = _constructedObject {
@@ -670,7 +760,16 @@ private final class ResolvedTargetBuilder: ResolvedBuilder<ResolvedTarget> {
     /// The target dependencies of this target.
     var dependencies: [Dependency] = []
 
-    init(target: Target, observabilityScope: ObservabilityScope) {
+    /// The defaultLocalization for this package
+    var defaultLocalization: String? = nil
+
+    /// The platforms supported by this package.
+    var platforms: SupportedPlatforms = .init(declared: [], derived: [])
+
+    init(
+        target: Target,
+        observabilityScope: ObservabilityScope
+    ) {
         self.target = target
         self.diagnosticsEmitter = observabilityScope.makeDiagnosticsEmitter() {
             var metadata = ObservabilityMetadata()
@@ -682,9 +781,9 @@ private final class ResolvedTargetBuilder: ResolvedBuilder<ResolvedTarget> {
     func diagnoseInvalidUseOfUnsafeFlags(_ product: ResolvedProduct) throws {
         // Diagnose if any target in this product uses an unsafe flag.
         for target in try product.recursiveTargetDependencies() {
-            let declarations = target.underlyingTarget.buildSettings.assignments.keys
-            for decl in declarations {
-                if BuildSettings.Declaration.unsafeSettings.contains(decl) {
+            for (decl, assignments) in target.underlyingTarget.buildSettings.assignments {
+                let flags = assignments.flatMap(\.values)
+                if BuildSettings.Declaration.unsafeSettings.contains(decl) && !flags.isEmpty {
                     self.diagnosticsEmitter.emit(.productUsesUnsafeFlags(product: product.name, target: target.name))
                     break
                 }
@@ -706,7 +805,12 @@ private final class ResolvedTargetBuilder: ResolvedBuilder<ResolvedTarget> {
             }
         }
 
-        return ResolvedTarget(target: target, dependencies: dependencies)
+        return ResolvedTarget(
+            target: self.target,
+            dependencies: dependencies,
+            defaultLocalization: self.defaultLocalization,
+            platforms: self.platforms
+        )
     }
 }
 
@@ -719,6 +823,12 @@ private final class ResolvedPackageBuilder: ResolvedBuilder<ResolvedPackage> {
     /// The product filter applied to the package.
     let productFilter: ProductFilter
 
+    /// Package can vend unsafe products
+    let isAllowedToVendUnsafeProducts: Bool
+
+    /// Package can be overridden
+    let allowedToOverride: Bool
+
     /// The targets in the package.
     var targets: [ResolvedTargetBuilder] = []
 
@@ -728,9 +838,11 @@ private final class ResolvedPackageBuilder: ResolvedBuilder<ResolvedPackage> {
     /// The dependencies of this package.
     var dependencies: [ResolvedPackageBuilder] = []
 
-    let isAllowedToVendUnsafeProducts: Bool
+    /// The defaultLocalization for this package.
+    var defaultLocalization: String? = nil
 
-    let allowedToOverride: Bool
+    /// The platforms supported by this package.
+    var platforms: SupportedPlatforms = .init(declared: [], derived: [])
 
     init(_ package: Package, productFilter: ProductFilter, isAllowedToVendUnsafeProducts: Bool, allowedToOverride: Bool) {
         self.package = package
@@ -741,10 +853,12 @@ private final class ResolvedPackageBuilder: ResolvedBuilder<ResolvedPackage> {
 
     override func constructImpl() throws -> ResolvedPackage {
         return ResolvedPackage(
-            package: package,
-            dependencies: try dependencies.map{ try $0.construct() },
-            targets: try targets.map{ try $0.construct() },
-            products: try products.map{ try  $0.construct() }
+            package: self.package,
+            defaultLocalization: self.defaultLocalization,
+            platforms: self.platforms,
+            dependencies: try self.dependencies.map{ try $0.construct() },
+            targets: try self.targets.map{ try $0.construct() },
+            products: try self.products.map{ try $0.construct() }
         )
     }
 }

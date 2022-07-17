@@ -1,15 +1,18 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2019 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2019 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Dispatch
+import class Foundation.NSLock
 import OrderedCollections
 import PackageModel
 import TSCBasic
@@ -37,7 +40,7 @@ public struct PubgrubDependencyResolver {
         /// The current best guess for a solution satisfying all requirements.
         public private(set) var solution: PartialSolution
 
-        private let lock = Lock()
+        private let lock = NSLock()
 
         init(root: DependencyResolutionNode,
              overriddenPackages: [PackageReference: (version: BoundVersion, products: ProductFilter)] = [:],
@@ -310,7 +313,7 @@ public struct PubgrubDependencyResolver {
                         }
                     } else if !overriddenPackages.keys.contains(dependency.package) {
                         // Add the constraint if its not already present. This will ensure we don't
-                        // end up looping infinitely due to a cycle (which are diagnosed seperately).
+                        // end up looping infinitely due to a cycle (which are diagnosed separately).
                         constraints.append(dependency)
                     }
                 }
@@ -318,7 +321,7 @@ public struct PubgrubDependencyResolver {
         }
 
         // Process revision-based constraints in the second phase. Here we do the similar processing
-        // as the first phase but we also ignore the constraints that are overriden due to
+        // as the first phase but we also ignore the constraints that are overridden due to
         // presence of unversioned constraints.
         while let constraint = constraints.first(where: { $0.requirement.isRevision }) {
             guard case .revision(let revision) = constraint.requirement else {
@@ -331,7 +334,7 @@ public struct PubgrubDependencyResolver {
             switch overriddenPackages[package]?.version {
             case .excluded?, .version?:
                 // These values are not possible.
-                throw InternalError("Unexpected value for overriden package \(package) in \(overriddenPackages)")
+                throw InternalError("Unexpected value for overridden package \(package) in \(overriddenPackages)")
             case .unversioned?:
                 // This package is overridden by an unversioned package so we can ignore this constraint.
                 continue
@@ -524,6 +527,11 @@ public struct PubgrubDependencyResolver {
         var incompatibility = conflict
         var createdIncompatibility = false
 
+        // rdar://93335995
+        // hard protection from infinite loops
+        let maxIterations = 1000
+        var iterations: Int = 0
+
         while !isCompleteFailure(incompatibility, root: state.root) {
             var mostRecentTerm: Term?
             var mostRecentSatisfier: Assignment?
@@ -576,7 +584,11 @@ public struct PubgrubDependencyResolver {
             newTerms += priorCause.terms.filter { $0.node != _mostRecentSatisfier.term.node }
 
             if let _difference = difference {
-                newTerms.append(_difference.inverse)
+                // rdar://93335995
+                // do not add the exact inverse of a requirement as it can lead to endless loops
+                if _difference.inverse != mostRecentTerm {
+                    newTerms.append(_difference.inverse)
+                }
             }
 
             incompatibility = try Incompatibility(
@@ -592,6 +604,13 @@ public struct PubgrubDependencyResolver {
                 } else {
                     self.delegate?.satisfied(term: term, by: _mostRecentSatisfier, incompatibility: incompatibility)
                 }
+            }
+
+            // rdar://93335995
+            // hard protection from infinite loops
+            iterations = iterations + 1
+            if iterations >= maxIterations {
+                break
             }
         }
 
@@ -1187,7 +1206,7 @@ internal final class PubGrubPackageContainer {
                 return [try Incompatibility(Term(node, .exact(version)), root: root, cause: cause)]
             }
 
-            // Skip if this package is overriden.
+            // Skip if this package is overridden.
             if overriddenPackages.keys.contains(dep.package) {
                 continue
             }

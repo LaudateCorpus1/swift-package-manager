@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2019 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2019 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import OrderedCollections
@@ -18,7 +20,7 @@ import struct TSCUtility.Version
 public struct PartialSolution {
     var root: DependencyResolutionNode?
 
-    /// All known assigments.
+    /// All known assignments.
     public private(set) var assignments: [Assignment]
 
     /// All known decisions.
@@ -68,7 +70,7 @@ public struct PartialSolution {
         register(decision)
     }
 
-    /// Populates the _positive and _negative poperties with the assignment.
+    /// Populates the _positive and _negative properties with the assignment.
     private mutating func register(_ assignment: Assignment) {
         let term = assignment.term
         let pkg = term.node

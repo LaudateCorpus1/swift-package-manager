@@ -1,18 +1,23 @@
-/*
-This source file is part of the Swift.org open source project
-
-Copyright 2015 - 2022 Apple Inc. and the Swift project authors
-Licensed under Apache License v2.0 with Runtime Library Exception
-
-See http://swift.org/LICENSE.txt for license information
-See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2015-2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import ArgumentParser
 import Basics
 import Build
+import Dispatch
+import class Foundation.NSLock
 import class Foundation.ProcessInfo
 import PackageGraph
+import PackageModel
 import SPMBuildCore
 import TSCBasic
 import func TSCLibc.exit
@@ -45,27 +50,6 @@ extension TestError: CustomStringConvertible {
 }
 
 struct TestToolOptions: ParsableArguments {
-    /// Returns the mode in with the tool command should run.
-    var mode: TestMode {
-        if shouldRunInParallel {
-            return .runParallel
-        }
-
-        if shouldListTests {
-            return .listTests
-        }
-
-        if shouldGenerateLinuxMain {
-            return .generateLinuxMain
-        }
-
-        if shouldPrintCodeCovPath {
-            return .codeCovPath
-        }
-
-        return .runSerial
-    }
-
     @Flag(name: .customLong("skip-build"),
           help: "Skip building the test target")
     var shouldSkipBuilding: Bool = false
@@ -88,16 +72,16 @@ struct TestToolOptions: ParsableArguments {
     /// List the tests and exit.
     @Flag(name: [.customLong("list-tests"), .customShort("l")],
           help: "Lists test methods in specifier format")
-    var shouldListTests: Bool = false
+    var _deprecated_shouldListTests: Bool = false
 
     /// Generate LinuxMain entries and exit.
     @Flag(name: .customLong("generate-linuxmain"), help: .hidden)
-    var shouldGenerateLinuxMain: Bool = false
+    var _deprecated_shouldGenerateLinuxMain: Bool = false
 
     /// If the path of the exported code coverage JSON should be printed.
     @Flag(name: .customLong("show-codecov-path"),
           help: "Print the path of the exported code coverage JSON file")
-    var shouldPrintCodeCovPath: Bool = false
+    var _deprecated_shouldPrintCodeCovPath: Bool = false
 
     var testCaseSpecifier: TestCaseSpecifier {
         if !filter.isEmpty {
@@ -133,6 +117,12 @@ struct TestToolOptions: ParsableArguments {
     /// Generate LinuxMain entries and exit.
     @Flag(name: .customLong("testable-imports"), inversion: .prefixedEnableDisable, help: "Enable or disable testable imports. Enabled by default.")
     var enableTestableImports: Bool = true
+
+    /// Whether to enable code coverage.
+    @Flag(name: .customLong("code-coverage"),
+          inversion: .prefixedEnableDisable,
+          help: "Enable code coverage")
+    var enableCodeCoverage: Bool = false
 }
 
 /// Tests filtering specifier
@@ -149,14 +139,6 @@ public enum TestCaseSpecifier {
     case skip([String])
 }
 
-public enum TestMode {
-    case listTests
-    case codeCovPath
-    case generateLinuxMain
-    case runSerial
-    case runParallel
-}
-
 /// swift-test tool namespace
 public struct SwiftTestTool: SwiftCommand {
     public static var configuration = CommandConfiguration(
@@ -164,18 +146,19 @@ public struct SwiftTestTool: SwiftCommand {
         _superCommandName: "swift",
         abstract: "Build and run tests",
         discussion: "SEE ALSO: swift build, swift run, swift package",
-        version: SwiftVersion.currentVersion.completeDisplayString,
+        version: SwiftVersion.current.completeDisplayString,
+        subcommands: [
+            List.self,
+            PrintCodeCovPath.self,
+            GenerateLinuxMain.self
+        ],
         helpNames: [.short, .long, .customLong("help", withSingleDash: true)])
 
-    @OptionGroup(_hiddenFromHelp: true)
-    var swiftOptions: SwiftToolOptions
+    @OptionGroup()
+    var globalOptions: GlobalOptions
 
     @OptionGroup()
     var options: TestToolOptions
-
-    var shouldEnableCodeCoverage: Bool {
-        swiftOptions.shouldEnableCodeCoverage
-    }
 
     public func run(_ swiftTool: SwiftTool) throws {
         do {
@@ -184,7 +167,7 @@ public struct SwiftTestTool: SwiftCommand {
 
             // validate XCTest available on darwin based systems
             let toolchain = try swiftTool.getToolchain()
-            if toolchain.triple.isDarwin() && toolchain.configuration.xctestPath == nil {
+            if toolchain.triple.isDarwin() && toolchain.xctestPath == nil {
                 throw TestError.xctestNotAvailable
             }
         } catch {
@@ -192,58 +175,26 @@ public struct SwiftTestTool: SwiftCommand {
             throw ExitCode.failure
         }
 
-        switch options.mode {
-        case .listTests:
-            let testProducts = try buildTestsIfNeeded(swiftTool: swiftTool)
-            let testSuites = try TestingSupport.getTestSuites(in: testProducts, swiftTool: swiftTool, swiftOptions: swiftOptions)
-            let tests = try testSuites
-                .filteredTests(specifier: options.testCaseSpecifier)
-                .skippedTests(specifier: options.skippedTests(fileSystem: swiftTool.fileSystem))
-
-            // Print the tests.
-            for test in tests {
-                print(test.specifier)
-            }
-
-        case .codeCovPath:
-            let workspace = try swiftTool.getActiveWorkspace()
-            let root = try swiftTool.getWorkspaceRoot()
-            let rootManifests = try temp_await {
-                workspace.loadRootManifests(
-                    packages: root.packages,
-                    observabilityScope: swiftTool.observabilityScope,
-                    completion: $0
-                )
-            }
-            guard let rootManifest = rootManifests.values.first else {
-                throw StringError("invalid manifests at \(root.packages)")
-            }
-            let buildParameters = try swiftTool.buildParametersForTest(options: self.options)
-            print(codeCovAsJSONPath(buildParameters: buildParameters, packageName: rootManifest.displayName))
-
-        case .generateLinuxMain:
-            // this functionality is deprecated as of 12/2020
-            // but we are keeping it here for transition purposes
-            // to be removed in future releases
-            // deprecation warning is emitted by validateArguments
-            #if os(Linux)
-            swiftTool.observabilityScope.emit(warning: "can't discover tests on Linux; please use this option on macOS instead")
-            #endif
-            let graph = try swiftTool.loadPackageGraph()
-            let testProducts = try buildTestsIfNeeded(swiftTool: swiftTool)
-            let testSuites = try TestingSupport.getTestSuites(in: testProducts, swiftTool: swiftTool, swiftOptions: swiftOptions)
-            let allTestSuites = testSuites.values.flatMap { $0 }
-            let generator = LinuxMainGenerator(graph: graph, testSuites: allTestSuites)
-            try generator.generate()
-
-        case .runSerial:
+        if self.options._deprecated_shouldListTests {
+            // backward compatibility 6/2022 for deprecation of flag into a subcommand
+            let command = try List.parse()
+            try command.run(swiftTool)
+        } else if self.options._deprecated_shouldPrintCodeCovPath {
+            // backward compatibility 6/2022 for deprecation of flag into a subcommand
+            let command = try PrintCodeCovPath.parse()
+            try command.run(swiftTool)
+        } else if self.options._deprecated_shouldGenerateLinuxMain {
+            // backward compatibility 6/2022 for deprecation of flag into a subcommand
+            let command = try GenerateLinuxMain.parse()
+            try command.run(swiftTool)
+        } else if !self.options.shouldRunInParallel {
             let toolchain = try swiftTool.getToolchain()
             let testProducts = try buildTestsIfNeeded(swiftTool: swiftTool)
             let buildParameters = try swiftTool.buildParametersForTest(options: self.options)
 
             // Clean out the code coverage directory that may contain stale
             // profraw files from a previous run of the code coverage tool.
-            if shouldEnableCodeCoverage {
+            if self.options.enableCodeCoverage {
                 try swiftTool.fileSystem.removeFileTree(buildParameters.codeCovPath)
             }
 
@@ -264,7 +215,12 @@ public struct SwiftTestTool: SwiftCommand {
                 }
 
                 // Find the tests we need to run.
-                let testSuites = try TestingSupport.getTestSuites(in: testProducts, swiftTool: swiftTool, swiftOptions: swiftOptions)
+                let testSuites = try TestingSupport.getTestSuites(
+                    in: testProducts,
+                    swiftTool: swiftTool,
+                    enableCodeCoverage: options.enableCodeCoverage,
+                    sanitizers: globalOptions.build.sanitizers
+                )
                 let tests = try testSuites
                     .filteredTests(specifier: options.testCaseSpecifier)
                     .skippedTests(specifier: options.skippedTests(fileSystem: swiftTool.fileSystem))
@@ -278,12 +234,16 @@ public struct SwiftTestTool: SwiftCommand {
                 }
             }
 
-            let testEnv = try TestingSupport.constructTestEnvironment(toolchain: toolchain, options: swiftOptions, buildParameters: buildParameters)
+            let testEnv = try TestingSupport.constructTestEnvironment(
+                toolchain: toolchain,
+                buildParameters: buildParameters,
+                sanitizers: globalOptions.build.sanitizers
+            )
 
             let runner = TestRunner(
                 bundlePaths: testProducts.map { $0.bundlePath },
                 xctestArg: xctestArg,
-                processSet: swiftTool.processSet,
+                cancellator: swiftTool.cancellator,
                 toolchain: toolchain,
                 testEnv: testEnv,
                 observabilityScope: swiftTool.observabilityScope
@@ -299,14 +259,19 @@ public struct SwiftTestTool: SwiftCommand {
                 swiftTool.executionStatus = .failure
             }
 
-            if shouldEnableCodeCoverage {
+            if self.options.enableCodeCoverage {
                 try processCodeCoverage(testProducts, swiftTool: swiftTool)
             }
 
-        case .runParallel:
+        } else {
             let toolchain = try swiftTool.getToolchain()
             let testProducts = try buildTestsIfNeeded(swiftTool: swiftTool)
-            let testSuites = try TestingSupport.getTestSuites(in: testProducts, swiftTool: swiftTool, swiftOptions: swiftOptions)
+            let testSuites = try TestingSupport.getTestSuites(
+                in: testProducts,
+                swiftTool: swiftTool,
+                enableCodeCoverage: options.enableCodeCoverage,
+                sanitizers: globalOptions.build.sanitizers
+            )
             let tests = try testSuites
                 .filteredTests(specifier: options.testCaseSpecifier)
                 .skippedTests(specifier: options.skippedTests(fileSystem: swiftTool.fileSystem))
@@ -320,17 +285,17 @@ public struct SwiftTestTool: SwiftCommand {
 
             // Clean out the code coverage directory that may contain stale
             // profraw files from a previous run of the code coverage tool.
-            if shouldEnableCodeCoverage {
+            if self.options.enableCodeCoverage {
                 try swiftTool.fileSystem.removeFileTree(buildParameters.codeCovPath)
             }
 
             // Run the tests using the parallel runner.
             let runner = ParallelTestRunner(
                 bundlePaths: testProducts.map { $0.bundlePath },
-                processSet: swiftTool.processSet,
+                cancellator: swiftTool.cancellator,
                 toolchain: toolchain,
                 numJobs: options.numberOfWorkers ?? ProcessInfo.processInfo.activeProcessorCount,
-                options: swiftOptions,
+                buildOptions: globalOptions.build,
                 buildParameters: buildParameters,
                 shouldOutputSuccess: swiftTool.logLevel <= .info,
                 observabilityScope: swiftTool.observabilityScope
@@ -348,7 +313,7 @@ public struct SwiftTestTool: SwiftCommand {
             }
 
             // process code Coverage if request
-            if shouldEnableCodeCoverage {
+            if self.options.enableCodeCoverage {
                 try processCodeCoverage(testProducts, swiftTool: swiftTool)
             }
 
@@ -379,9 +344,7 @@ public struct SwiftTestTool: SwiftCommand {
         let buildParameters = try swiftTool.buildParametersForTest(options: self.options)
         for product in testProducts {
             // Export the codecov data as JSON.
-            let jsonPath = codeCovAsJSONPath(
-                buildParameters: buildParameters,
-                packageName: rootManifest.displayName)
+            let jsonPath = buildParameters.codeCovAsJSONPath(packageName: rootManifest.displayName)
             try exportCodeCovAsJSON(to: jsonPath, testBinary: product.binaryPath, swiftTool: swiftTool)
         }
     }
@@ -405,11 +368,7 @@ public struct SwiftTestTool: SwiftCommand {
         }
         args += ["-o", buildParameters.codeCovDataFile.pathString]
 
-        try Process.checkNonZeroExit(arguments: args)
-    }
-
-    private func codeCovAsJSONPath(buildParameters: BuildParameters, packageName: String) -> AbsolutePath {
-        return buildParameters.codeCovPath.appending(component: packageName + ".json")
+        try TSCBasic.Process.checkNonZeroExit(arguments: args)
     }
 
     /// Exports profdata as a JSON file.
@@ -423,7 +382,7 @@ public struct SwiftTestTool: SwiftCommand {
             "-instr-profile=\(buildParameters.codeCovDataFile)",
             testBinary.pathString
         ]
-        let result = try Process.popen(arguments: args)
+        let result = try TSCBasic.Process.popen(arguments: args)
 
         if result.exitStatus != .terminated(code: 0) {
             let output = try result.utf8Output() + result.utf8stderrOutput()
@@ -469,7 +428,7 @@ public struct SwiftTestTool: SwiftCommand {
         if let workers = options.numberOfWorkers {
 
             // The --num-worker option should be called with --parallel.
-            guard options.mode == .runParallel else {
+            guard options.shouldRunInParallel else {
                 throw StringError("--num-workers must be used with --parallel")
             }
 
@@ -478,12 +437,162 @@ public struct SwiftTestTool: SwiftCommand {
             }
         }
 
-        if options.shouldGenerateLinuxMain {
+        if options._deprecated_shouldGenerateLinuxMain {
             observabilityScope.emit(warning: "'--generate-linuxmain' option is deprecated; tests are automatically discovered on all platforms")
+        }
+
+        if options._deprecated_shouldListTests {
+            observabilityScope.emit(warning: "'--list-tests' option is deprecated; use 'swift test list' instead")
+        }
+
+        if options._deprecated_shouldPrintCodeCovPath {
+            observabilityScope.emit(warning: "'--show-codecov-path' option is deprecated; use 'swift test show-codecov-path' instead")
         }
     }
 
     public init() {}
+}
+
+extension SwiftTestTool {
+    struct List: SwiftCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Lists test methods in specifier format"
+        )
+
+        @OptionGroup(_hiddenFromHelp: true)
+        var globalOptions: GlobalOptions
+
+        /// The test product to use. This is useful when there are multiple test products
+        /// to choose from (usually in multiroot packages).
+        @Option(help: "Test the specified product.")
+        var testProduct: String?
+
+        // for deprecated passthrough from SwiftTestTool (parse will fail otherwise)
+        @Flag(name: [.customLong("list-tests"), .customShort("l")], help: .hidden)
+        var _deprecated_passthrough: Bool = false
+
+        func run(_ swiftTool: SwiftTool) throws {
+            let testProducts = try buildTests(swiftTool: swiftTool)
+            let testSuites = try TestingSupport.getTestSuites(
+                in: testProducts,
+                swiftTool: swiftTool,
+                enableCodeCoverage: false,
+                sanitizers: globalOptions.build.sanitizers
+            )
+
+            // Print the tests.
+            for test in testSuites.allTests {
+                print(test.specifier)
+            }
+        }
+
+        private func buildTests(swiftTool: SwiftTool) throws -> [BuiltTestProduct] {
+            let buildParameters = try swiftTool.buildParametersForTest(enableCodeCoverage: false)
+            let buildSystem = try swiftTool.createBuildSystem(customBuildParameters: buildParameters)
+
+            let subset = self.testProduct.map(BuildSubset.product) ?? .allIncludingTests
+            try buildSystem.build(subset: subset)
+
+            // Find the test product.
+            let testProducts = buildSystem.builtTestProducts
+            guard !testProducts.isEmpty else {
+                throw TestError.testsExecutableNotFound
+            }
+
+            if let testProductName = self.testProduct {
+                guard let selectedTestProduct = testProducts.first(where: { $0.productName == testProductName }) else {
+                    throw TestError.testsExecutableNotFound
+                }
+
+                return [selectedTestProduct]
+            } else {
+                return testProducts
+            }
+        }
+    }
+}
+
+extension SwiftTestTool {
+    struct PrintCodeCovPath: SwiftCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "show-codecov-path",
+            abstract: "Print the path of the exported code coverage JSON file"
+        )
+
+        @OptionGroup(_hiddenFromHelp: true)
+        var globalOptions: GlobalOptions
+
+        // for deprecated passthrough from SwiftTestTool (parse will fail otherwise)
+        @Flag(name: .customLong("show-codecov-path"), help: .hidden)
+        var _deprecated_passthrough: Bool = false
+
+        func run(_ swiftTool: SwiftTool) throws {
+            let workspace = try swiftTool.getActiveWorkspace()
+            let root = try swiftTool.getWorkspaceRoot()
+            let rootManifests = try temp_await {
+                workspace.loadRootManifests(
+                    packages: root.packages,
+                    observabilityScope: swiftTool.observabilityScope,
+                    completion: $0
+                )
+            }
+            guard let rootManifest = rootManifests.values.first else {
+                throw StringError("invalid manifests at \(root.packages)")
+            }
+            let buildParameters = try swiftTool.buildParametersForTest(enableCodeCoverage: true)
+            print(buildParameters.codeCovAsJSONPath(packageName: rootManifest.displayName))
+        }
+    }
+}
+
+extension SwiftTestTool {
+    // this functionality is deprecated as of 12/2020
+    // but we are keeping it here for transition purposes
+    // to be removed in future releases
+    // deprecation warning is emitted by validateArguments
+    struct GenerateLinuxMain: SwiftCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "generate-linuxmain",
+            abstract: "Generate LinuxMain.swift (deprecated)"
+        )
+
+        @OptionGroup(_hiddenFromHelp: true)
+        var globalOptions: GlobalOptions
+
+        // for deprecated passthrough from SwiftTestTool (parse will fail otherwise)
+        @Flag(name: .customLong("generate-linuxmain"), help: .hidden)
+        var _deprecated_passthrough: Bool = false
+
+        func run(_ swiftTool: SwiftTool) throws {
+            #if os(Linux)
+            swiftTool.observabilityScope.emit(warning: "can't discover tests on Linux; please use this option on macOS instead")
+            #endif
+            let graph = try swiftTool.loadPackageGraph()
+            let testProducts = try buildTests(swiftTool: swiftTool)
+            let testSuites = try TestingSupport.getTestSuites(
+                in: testProducts,
+                swiftTool: swiftTool,
+                enableCodeCoverage: false,
+                sanitizers: globalOptions.build.sanitizers
+            )
+            let allTestSuites = testSuites.values.flatMap { $0 }
+            let generator = LinuxMainGenerator(graph: graph, testSuites: allTestSuites)
+            try generator.generate()
+        }
+
+        private func buildTests(swiftTool: SwiftTool) throws -> [BuiltTestProduct] {
+            let buildParameters = try swiftTool.buildParametersForTest(enableCodeCoverage: false)
+            let buildSystem = try swiftTool.createBuildSystem(customBuildParameters: buildParameters)
+
+            try buildSystem.build(subset: .allIncludingTests)
+
+            guard !buildSystem.builtTestProducts.isEmpty else {
+                throw TestError.testsExecutableNotFound
+            }
+
+            return  buildSystem.builtTestProducts
+        }
+    }
 }
 
 /// A structure representing an individual unit test.
@@ -514,7 +623,7 @@ final class TestRunner {
     /// Arguments to pass to XCTest if any.
     private let xctestArg: String?
 
-    private let processSet: ProcessSet
+    private let cancellator: Cancellator
 
     // The toolchain to use.
     private let toolchain: UserToolchain
@@ -532,14 +641,14 @@ final class TestRunner {
     init(
         bundlePaths: [AbsolutePath],
         xctestArg: String? = nil,
-        processSet: ProcessSet,
+        cancellator: Cancellator,
         toolchain: UserToolchain,
         testEnv: [String: String],
         observabilityScope: ObservabilityScope
     ) {
         self.bundlePaths = bundlePaths
         self.xctestArg = xctestArg
-        self.processSet = processSet
+        self.cancellator = cancellator
         self.toolchain = toolchain
         self.testEnv = testEnv
         self.observabilityScope = observabilityScope.makeChildScope(description: "Test Runner")
@@ -560,7 +669,7 @@ final class TestRunner {
     private func args(forTestAt testPath: AbsolutePath) throws -> [String] {
         var args: [String] = []
         #if os(macOS)
-        guard let xctestPath = self.toolchain.configuration.xctestPath else {
+        guard let xctestPath = self.toolchain.xctestPath else {
             throw TestError.xctestNotAvailable
         }
         args = [xctestPath.pathString]
@@ -590,8 +699,11 @@ final class TestRunner {
                 stdout: outputHandler,
                 stderr: outputHandler
             )
-            let process = Process(arguments: try args(forTestAt: path), environment: self.testEnv, outputRedirection: outputRedirection)
-            try self.processSet.add(process)
+            let process = TSCBasic.Process(arguments: try args(forTestAt: path), environment: self.testEnv, outputRedirection: outputRedirection)
+            guard let terminationKey = self.cancellator.register(process) else {
+                return false // terminating
+            }
+            defer { self.cancellator.deregister(terminationKey) }
             try process.launch()
             let result = try process.waitUntilExit()
             switch result.exitStatus {
@@ -605,8 +717,6 @@ final class TestRunner {
             default:
                 return false
             }
-        } catch ProcessSetError.cancelled {
-            return false
         } catch {
             testObservabilityScope.emit(error)
             return false
@@ -621,6 +731,7 @@ final class ParallelTestRunner {
         var unitTest: UnitTest
         var output: String
         var success: Bool
+        var duration: DispatchTimeInterval
     }
 
     /// Path to XCTest binaries.
@@ -644,11 +755,11 @@ final class ParallelTestRunner {
     /// True if all tests executed successfully.
     private(set) var ranSuccessfully = true
 
-    private let processSet: ProcessSet
+    private let cancellator: Cancellator
 
     private let toolchain: UserToolchain
 
-    private let options: SwiftToolOptions
+    private let buildOptions: BuildOptions
     private let buildParameters: BuildParameters
 
     /// Number of tests to execute in parallel.
@@ -662,16 +773,16 @@ final class ParallelTestRunner {
 
     init(
         bundlePaths: [AbsolutePath],
-        processSet: ProcessSet,
+        cancellator: Cancellator,
         toolchain: UserToolchain,
         numJobs: Int,
-        options: SwiftToolOptions,
+        buildOptions: BuildOptions,
         buildParameters: BuildParameters,
         shouldOutputSuccess: Bool,
         observabilityScope: ObservabilityScope
     ) {
         self.bundlePaths = bundlePaths
-        self.processSet = processSet
+        self.cancellator = cancellator
         self.toolchain = toolchain
         self.numJobs = numJobs
         self.shouldOutputSuccess = shouldOutputSuccess
@@ -685,7 +796,7 @@ final class ParallelTestRunner {
             progressAnimation = NinjaProgressAnimation(stream: TSCBasic.stdoutStream)
         }
 
-        self.options = options
+        self.buildOptions = buildOptions
         self.buildParameters = buildParameters
 
         assert(numJobs > 0, "num jobs should be > 0")
@@ -714,7 +825,11 @@ final class ParallelTestRunner {
     func run(_ tests: [UnitTest]) throws -> [TestResult] {
         assert(!tests.isEmpty, "There should be at least one test to execute.")
 
-        let testEnv = try TestingSupport.constructTestEnvironment(toolchain: self.toolchain, options: self.options, buildParameters: self.buildParameters)
+        let testEnv = try TestingSupport.constructTestEnvironment(
+            toolchain: self.toolchain,
+            buildParameters: self.buildParameters,
+            sanitizers: self.buildOptions.sanitizers
+        )
 
         // Enqueue all the tests.
         try enqueueTests(tests)
@@ -727,17 +842,25 @@ final class ParallelTestRunner {
                     let testRunner = TestRunner(
                         bundlePaths: [test.productPath],
                         xctestArg: test.specifier,
-                        processSet: self.processSet,
+                        cancellator: self.cancellator,
                         toolchain: self.toolchain,
                         testEnv: testEnv,
                         observabilityScope: self.observabilityScope
                     )
                     var output = ""
-                    let success = testRunner.test(outputHandler: { output += $0 })
+                    let outputLock = NSLock()
+                    let start = DispatchTime.now()
+                    let success = testRunner.test(outputHandler: { _output in outputLock.withLock{ output += _output }})
+                    let duration = start.distance(to: .now())
                     if !success {
                         self.ranSuccessfully = false
                     }
-                    self.finishedTests.enqueue(TestResult(unitTest: test, output: output, success: success))
+                    self.finishedTests.enqueue(TestResult(
+                        unitTest: test,
+                        output: output,
+                        success: success,
+                        duration: duration
+                    ))
                 }
             }
             thread.start()
@@ -937,12 +1060,11 @@ final class XUnitGenerator {
 
         // Get the failure count.
         let failures = results.filter({ !$0.success }).count
+        let duration = results.compactMap({ $0.duration.timeInterval() }).reduce(0.0, +)
 
-        // FIXME: This should contain the right elapsed time.
-        //
         // We need better output reporting from XCTest.
         stream <<< """
-            <testsuite name="TestResults" errors="0" tests="\(results.count)" failures="\(failures)" time="0.0">
+            <testsuite name="TestResults" errors="0" tests="\(results.count)" failures="\(failures)" time="\(duration)">
 
             """
 
@@ -951,8 +1073,9 @@ final class XUnitGenerator {
         // FIXME: This is very minimal right now. We should allow including test output etc.
         for result in results {
             let test = result.unitTest
+            let duration = result.duration.timeInterval() ?? 0.0
             stream <<< """
-                <testcase classname="\(test.testCase)" name="\(test.name)" time="0.0">
+                <testcase classname="\(test.testCase)" name="\(test.name)" time="\(duration)">
 
                 """
 
@@ -973,6 +1096,7 @@ final class XUnitGenerator {
 extension SwiftTool {
     func buildParametersForTest(options: TestToolOptions) throws -> BuildParameters {
         try self.buildParametersForTest(
+            enableCodeCoverage: options.enableCodeCoverage,
             enableTestability: options.enableTestableImports
         )
     }
@@ -1015,9 +1139,14 @@ extension TestToolOptions {
     }
 }
 
+extension BuildParameters {
+    fileprivate func codeCovAsJSONPath(packageName: String) -> AbsolutePath {
+        return self.codeCovPath.appending(component: packageName + ".json")
+    }
+}
+
 private extension Basics.Diagnostic {
     static var noMatchingTests: Self {
         .warning("No matching test cases were run")
     }
 }
-

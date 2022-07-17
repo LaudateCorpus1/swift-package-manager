@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021-2022 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021-2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 /// Provides specialized information and services from the Swift Package Manager
 /// or an IDE that supports Swift Packages. Different plugin hosts implement the
@@ -75,7 +77,7 @@ public struct PackageManager {
     }
     
     /// Represents an overall purpose of the build, which affects such things
-    /// asoptimization and generation of debug symbols.
+    /// as optimization and generation of debug symbols.
     public enum BuildConfiguration: String {
         case debug, release
     }

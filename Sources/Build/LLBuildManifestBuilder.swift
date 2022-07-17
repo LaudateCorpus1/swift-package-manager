@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright 2015 - 2016 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2015-2016 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import PackageGraph
@@ -116,7 +118,7 @@ extension LLBuildManifestBuilder {
                 derivedSourceDirPaths.append(contentsOf: result.outputDirectories)
             }
             inputs.append(contentsOf: derivedSourceDirPaths.sorted().map{ Node.directoryStructure($0) })
-            
+
             // FIXME: Need to handle version-specific manifests.
             inputs.append(file: package.manifest.path)
 
@@ -169,7 +171,7 @@ extension LLBuildManifestBuilder {
         let infoPlistDestination = RelativePath("Info.plist")
 
         // Create a copy command for each resource file.
-        for resource in target.target.underlyingTarget.resources {
+        for resource in target.resources {
             let destination = bundlePath.appending(resource.destination)
             let (_, output) = addCopyCommand(from: resource.path, to: destination)
             outputs.append(output)
@@ -226,7 +228,7 @@ extension LLBuildManifestBuilder {
         // jobs needed to build this Swift target.
         var commandLine = try target.emitCommandLine();
         commandLine.append("-driver-use-frontend-path")
-        commandLine.append(buildParameters.toolchain.swiftCompiler.pathString)
+        commandLine.append(buildParameters.toolchain.swiftCompilerPath.pathString)
         // FIXME: At some point SwiftPM should provide its own executor for
         // running jobs/launching processes during planning
         let resolver = try ArgsResolver(fileSystem: target.fileSystem)
@@ -322,7 +324,7 @@ extension LLBuildManifestBuilder {
     // Consider an example SwiftPM package with two targets: target B, and target A, where A
     // depends on B:
     // SwiftPM will process targets in a topological order and “bubble-up” each target’s
-    // inter-module dependency graph to its dependees. First, SwiftPM will process B, and be
+    // inter-module dependency graph to its dependencies. First, SwiftPM will process B, and be
     // able to plan its full build because it does not have any target dependencies. Then the
     // driver is tasked with planning a build for A. SwiftPM will pass as input to the driver
     // the module dependency graph of its target’s dependencies, in this case, just the
@@ -416,7 +418,7 @@ extension LLBuildManifestBuilder {
         // jobs needed to build this Swift target.
         var commandLine = try targetDescription.emitCommandLine();
         commandLine.append("-driver-use-frontend-path")
-        commandLine.append(buildParameters.toolchain.swiftCompiler.pathString)
+        commandLine.append(buildParameters.toolchain.swiftCompilerPath.pathString)
         commandLine.append("-experimental-explicit-module-build")
         let resolver = try ArgsResolver(fileSystem: self.fileSystem)
         let executor = SPMSwiftDriverExecutor(resolver: resolver,
@@ -511,7 +513,7 @@ extension LLBuildManifestBuilder {
             name: cmdName,
             inputs: inputs,
             outputs: cmdOutputs,
-            executable: buildParameters.toolchain.swiftCompiler,
+            executable: buildParameters.toolchain.swiftCompilerPath,
             moduleName: target.target.c99name,
             moduleAliases: target.target.moduleAliases,
             moduleOutputPath: target.moduleOutputPath,
@@ -623,7 +625,7 @@ extension LLBuildManifestBuilder {
                 manifest.addShellCmd(
                     name: displayName + "-" + ByteString(encodingAsUTF8: uniquedName).sha256Checksum,
                     description: displayName,
-                    inputs: [.file(execPath)] + command.inputFiles.map{ .file($0) },
+                    inputs: command.inputFiles.map{ .file($0) },
                     outputs: command.outputFiles.map{ .file($0) },
                     arguments: commandLine,
                     environment: command.configuration.environment,
@@ -655,10 +657,10 @@ extension LLBuildManifestBuilder {
     }
 
     private func addModuleWrapCmd(_ target: SwiftTargetBuildDescription) throws {
-        // Add commands to perform the module wrapping Swift modules when debugging statergy is `modulewrap`.
+        // Add commands to perform the module wrapping Swift modules when debugging strategy is `modulewrap`.
         guard buildParameters.debuggingStrategy == .modulewrap else { return }
         var moduleWrapArgs = [
-            target.buildParameters.toolchain.swiftCompiler.pathString,
+            target.buildParameters.toolchain.swiftCompilerPath.pathString,
             "-modulewrap", target.moduleOutputPath.pathString,
             "-o", target.wrappedModuleOutputPath.pathString
         ]

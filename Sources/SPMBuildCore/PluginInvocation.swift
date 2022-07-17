@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021-2022 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021-2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -234,7 +236,8 @@ extension PluginTarget {
         
         // Call the plugin script runner to actually invoke the plugin.
         scriptRunner.runPluginScript(
-            sources: sources,
+            sourceFiles: sources.paths,
+            pluginName: self.name,
             initialMessage: initialMessage,
             toolsVersion: self.apiVersion,
             workingDirectory: workingDirectory,
@@ -350,6 +353,9 @@ extension PackageGraph {
                         dict[name] = path
                     }
                 })
+                
+                // Determine additional input dependencies for any plugin commands, based on any executables the plugin target depends on.
+                let toolPaths = toolNamesToPaths.values.sorted()
 
                 // Assign a plugin working directory based on the package, target, and plugin.
                 let pluginOutputDir = outputDir.appending(components: package.identity.description, target.name, pluginTarget.name)
@@ -364,13 +370,15 @@ extension PackageGraph {
                 let delegateQueue = DispatchQueue(label: "plugin-invocation")
                 class PluginDelegate: PluginInvocationDelegate {
                     let delegateQueue: DispatchQueue
+                    let toolPaths: [AbsolutePath]
                     var outputData = Data()
                     var diagnostics = [Basics.Diagnostic]()
                     var buildCommands = [BuildToolPluginInvocationResult.BuildCommand]()
                     var prebuildCommands = [BuildToolPluginInvocationResult.PrebuildCommand]()
                     
-                    init(delegateQueue: DispatchQueue) {
+                    init(delegateQueue: DispatchQueue, toolPaths: [AbsolutePath]) {
                         self.delegateQueue = delegateQueue
+                        self.toolPaths = toolPaths
                     }
                     
                     func pluginEmittedOutput(_ data: Data) {
@@ -392,7 +400,7 @@ extension PackageGraph {
                                 arguments: arguments,
                                 environment: environment,
                                 workingDirectory: workingDirectory),
-                            inputFiles: inputFiles,
+                            inputFiles: toolPaths + inputFiles,
                             outputFiles: outputFiles))
                     }
                     
@@ -408,7 +416,7 @@ extension PackageGraph {
                             outputFilesDirectory: outputFilesDirectory))
                     }
                 }
-                let delegate = PluginDelegate(delegateQueue: delegateQueue)
+                let delegate = PluginDelegate(delegateQueue: delegateQueue, toolPaths: toolPaths)
 
                 // Invoke the build tool plugin with the input parameters and the delegate that will collect outputs.
                 let startTime = DispatchTime.now()
@@ -465,7 +473,8 @@ public extension PluginTarget {
     /// The set of tools that are accessible to this plugin.
     func accessibleTools(fileSystem: FileSystem, for hostTriple: Triple) -> Set<PluginAccessibleTool> {
         return Set(self.dependencies.flatMap { dependency -> [PluginAccessibleTool] in
-            if case .target(let target, _) = dependency {
+            switch dependency {
+            case .target(let target, _):
                 // For a binary target we create a `vendedTool`.
                 if let target = target as? BinaryTarget {
                     // TODO: Memoize this result for the host triple
@@ -480,8 +489,12 @@ public extension PluginTarget {
                     // TODO: How do we determine what the executable name will be for the host platform?
                     return [.builtTool(name: target.name, path: RelativePath(target.name))]
                 }
+                else {
+                    return []
+                }
+            case .product(let product, _):
+                return [.builtTool(name: product.name, path: RelativePath(product.name))]
             }
-            return []
         })
     }
 }

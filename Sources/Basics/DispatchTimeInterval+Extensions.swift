@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2020-2022 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2020-2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Dispatch
 import struct Foundation.TimeInterval
@@ -22,6 +24,21 @@ extension DispatchTimeInterval {
             return Double(value) / 1_000_000
         case .nanoseconds(let value):
             return Double(value) / 1_000_000_000
+        default:
+            return nil
+        }
+    }
+
+    public func nanoseconds() -> Int? {
+        switch self {
+        case .seconds(let value):
+            return value.multipliedReportingOverflow(by: 1_000_000_000).partialValue
+        case .milliseconds(let value):
+            return value.multipliedReportingOverflow(by: 1_000_000).partialValue
+        case .microseconds(let value):
+            return value.multipliedReportingOverflow(by: 1000).partialValue
+        case .nanoseconds(let value):
+            return value
         default:
             return nil
         }
@@ -81,7 +98,9 @@ extension DispatchTimeInterval {
 #if os(Linux) || os(Windows) || os(Android) || os(OpenBSD)
 extension DispatchTime {
     public func distance(to: DispatchTime) -> DispatchTimeInterval {
-        let duration = to.uptimeNanoseconds - self.uptimeNanoseconds
+        let final = to.uptimeNanoseconds
+        let point = self.uptimeNanoseconds
+        let duration: Int64 = Int64(bitPattern: final.subtractingReportingOverflow(point).partialValue)
         return .nanoseconds(duration >= Int.max ? Int.max : Int(duration))
     }
 }

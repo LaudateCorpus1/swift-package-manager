@@ -1,15 +1,18 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Dispatch
+import class Foundation.NSLock
 import TSCBasic
 
 import enum TSCUtility.Git
@@ -19,21 +22,23 @@ import protocol TSCUtility.DiagnosticLocationProviding
 
 /// Helper for shelling out to `git`
 private struct GitShellHelper {
-    /// Reference to process set, if installed.
-    private let processSet: ProcessSet?
+    private let cancellator: Cancellator
 
-    init(processSet: ProcessSet? = nil) {
-        self.processSet = processSet
+    init(cancellator: Cancellator) {
+        self.cancellator = cancellator
     }
 
     /// Private function to invoke the Git tool with its default environment and given set of arguments.  The specified
     /// failure message is used only in case of error.  This function waits for the invocation to finish and returns the
     /// output as a string.
-    func run(_ args: [String], environment: EnvironmentVariables = Git.environment, outputRedirection: Process.OutputRedirection = .collect) throws -> String {
-        let process = Process(arguments: [Git.tool] + args, environment: environment, outputRedirection: outputRedirection)
+    func run(_ args: [String], environment: EnvironmentVariables = Git.environment, outputRedirection: TSCBasic.Process.OutputRedirection = .collect) throws -> String {
+        let process = TSCBasic.Process(arguments: [Git.tool] + args, environment: environment, outputRedirection: outputRedirection)
         let result: ProcessResult
         do {
-            try self.processSet?.add(process)
+            guard let terminationKey = self.cancellator.register(process) else {
+                throw CancellationError() // terminating
+            }
+            defer { self.cancellator.deregister(terminationKey) }
             try process.launch()
             result = try process.waitUntilExit()
             guard result.exitStatus == .terminated(code: 0) else {
@@ -57,11 +62,15 @@ private struct GitShellHelper {
 // MARK: - GitRepositoryProvider
 
 /// A `git` repository provider.
-public struct GitRepositoryProvider: RepositoryProvider {
+public struct GitRepositoryProvider: RepositoryProvider, Cancellable {
+    private let cancellator: Cancellator
     private let git: GitShellHelper
 
-    public init(processSet: ProcessSet? = nil) {
-        self.git = GitShellHelper(processSet: processSet)
+    public init() {
+        // helper to cancel outstanding processes
+        self.cancellator = Cancellator(observabilityScope: .none)
+        // helper to abstract shelling out to git
+        self.git = GitShellHelper(cancellator: cancellator)
     }
 
     @discardableResult
@@ -204,6 +213,10 @@ public struct GitRepositoryProvider: RepositoryProvider {
     public func openWorkingCopy(at path: AbsolutePath) throws -> WorkingCheckout {
         return GitRepository(git: self.git, path: path)
     }
+
+    public func cancel(deadline: DispatchTime) throws {
+        try self.cancellator.cancel(deadline: deadline)
+    }
 }
 
 // MARK: - GitRepository
@@ -317,8 +330,9 @@ public final class GitRepository: Repository, WorkingCheckout {
 
     /// Concurrent queue to execute git cli on.
     private let git: GitShellHelper
+
     // lock top protect concurrent modifications to the repository
-    private let lock = Lock()
+    private let lock = NSLock()
 
     /// If this repo is a work tree repo (checkout) as opposed to a bare repo.
     private let isWorkingRepo: Bool
@@ -329,8 +343,10 @@ public final class GitRepository: Repository, WorkingCheckout {
     private var cachedTrees = ThreadSafeKeyValueStore<String, Tree>()
     private var cachedTags = ThreadSafeBox<[String]>()
 
-    public convenience init(path: AbsolutePath, isWorkingRepo: Bool = true) {
-        let git = GitShellHelper()
+    public convenience init(path: AbsolutePath, isWorkingRepo: Bool = true, cancellator: Cancellator? = .none) {
+        // used in one-off operations on git repo, as such the terminator is not ver important
+        let cancellator = cancellator ?? Cancellator(observabilityScope: .none)
+        let git = GitShellHelper(cancellator: cancellator)
         self.init(git: git, path: path, isWorkingRepo: isWorkingRepo)
     }
 
@@ -431,7 +447,7 @@ public final class GitRepository: Repository, WorkingCheckout {
     }
 
     public func fetch() throws {
-       try fetch(progress: nil)
+        try self.fetch(progress: nil)
     }
 
     public func fetch(progress: FetchProgress.Handler? = nil) throws {
@@ -582,29 +598,23 @@ public final class GitRepository: Repository, WorkingCheckout {
         return try self.lock.withLock {
             let stringPaths = paths.map { $0.pathString }
 
-            return try withTemporaryFile { pathsFile in
-                try localFileSystem.writeFileContents(pathsFile.path) {
-                    for path in paths {
-                        $0 <<< path.pathString <<< "\0"
-                    }
+            let output: String
+            do {
+                output = try self.git.run(["-C", self.path.pathString, "check-ignore"] + stringPaths)
+            } catch let error as GitShellError {
+                guard error.result.exitStatus == .terminated(code: 1) else {
+                    throw GitRepositoryError(path: self.path, message: "unable to check ignored files", result: error.result)
                 }
-
-                let args = [
-                    Git.tool, "-C", self.path.pathString.spm_shellEscaped(),
-                    "check-ignore", "-z", "--stdin",
-                    "<", pathsFile.path.pathString.spm_shellEscaped(),
-                ]
-                let argsWithSh = ["sh", "-c", args.joined(separator: " ")]
-                let result = try Process.popen(arguments: argsWithSh)
-                let output = try result.output.get()
-
-                let outputs: [String] = output.split(separator: 0).map { String(decoding: $0, as: Unicode.UTF8.self) }
-
-                guard result.exitStatus == .terminated(code: 0) || result.exitStatus == .terminated(code: 1) else {
-                    throw GitInterfaceError.fatalError
-                }
-                return stringPaths.map(outputs.contains)
+                output = try error.result.utf8Output().spm_chomp()
             }
+
+            return stringPaths.map(output.split(separator: "\n").map {
+                let string = String($0).replacingOccurrences(of: "\\\\", with: "\\")
+                if string.utf8.first == UInt8(ascii: "\"") {
+                    return String(string.dropFirst(1).dropLast(1))
+                }
+                return string
+            }.contains)
         }
     }
 
@@ -771,11 +781,11 @@ private class GitFileSystemView: FileSystem {
     private func getEntry(_ path: AbsolutePath) throws -> Tree.Entry? {
         // Walk the components resolving the tree (starting with a synthetic
         // root entry).
-        var current: Tree.Entry = Tree.Entry(location: self.root, type: .tree, name: "/")
+        var current: Tree.Entry = Tree.Entry(location: self.root, type: .tree, name: AbsolutePath.root.pathString)
         var currentPath = AbsolutePath.root
-        for component in path.components.dropFirst(1) {
+        for component in path.components {
             // Skip the root pseudo-component.
-            if component == "/" { continue }
+            if component == AbsolutePath.root.pathString { continue }
 
             currentPath = currentPath.appending(component: component)
             // We have a component to resolve, so the current entry must be a tree.
@@ -868,7 +878,7 @@ private class GitFileSystemView: FileSystem {
     }
 
     public var currentWorkingDirectory: AbsolutePath? {
-        return AbsolutePath("/")
+        return AbsolutePath.root
     }
 
     func changeCurrentWorkingDirectory(to path: AbsolutePath) throws {
@@ -1017,7 +1027,7 @@ public enum GitProgressParser: FetchProgress {
     case receivingObjects(progress: Double, currentObjects: Int, totalObjects: Int, downloadProgress: String?, downloadSpeed: String?)
     case resolvingDeltas(progress: Double, currentObjects: Int, totalObjects: Int)
 
-    /// The pattern used to match git output. Caputre groups are labled from ?<i0> to ?<i19>.
+    /// The pattern used to match git output. Capture groups are labeled from ?<i0> to ?<i19>.
     static let pattern = #"""
 (?xi)
 (?:

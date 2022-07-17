@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2019 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2019 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import SwiftSyntax
 
@@ -411,7 +413,7 @@ final class NewTargetWriter: SyntaxRewriter {
         )
 
         let emptyArray = SyntaxFactory.makeArrayExpr(leftSquare: SyntaxFactory.makeLeftSquareBracketToken(), elements: SyntaxFactory.makeBlankArrayElementList(), rightSquare: SyntaxFactory.makeRightSquareBracketToken())
-        let depenenciesArg = SyntaxFactory.makeFunctionCallArgument(
+        let dependenciesArg = SyntaxFactory.makeFunctionCallArgument(
             label: SyntaxFactory.makeIdentifier("dependencies", leadingTrivia: leadingTriviaArgs),
             colon: SyntaxFactory.makeColonToken(trailingTrivia: .spaces(1)),
             expression: emptyArray,
@@ -422,7 +424,7 @@ final class NewTargetWriter: SyntaxRewriter {
             calledExpression: dotPackageExpr,
             leftParen: SyntaxFactory.makeLeftParenToken(),
             argumentList: SyntaxFactory.makeFunctionCallArgumentList([
-                nameArg, depenenciesArg,
+                nameArg, dependenciesArg,
                 ]),
             rightParen: SyntaxFactory.makeRightParenToken(),
             trailingClosure: nil

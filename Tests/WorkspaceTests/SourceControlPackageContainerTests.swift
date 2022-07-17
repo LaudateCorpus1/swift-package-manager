@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -146,6 +148,10 @@ private class MockRepositories: RepositoryProvider {
     func isValidRefFormat(_ ref: String) -> Bool {
         return true
     }
+
+    func cancel(deadline: DispatchTime) throws {
+        // noop
+    }
 }
 
 private class MockResolverDelegate: RepositoryManager.Delegate {
@@ -183,7 +189,7 @@ class SourceControlPackageContainerTests: XCTestCase {
         let specifier = RepositorySpecifier(path: repoPath)
         let repo = InMemoryGitRepository(path: repoPath, fs: fs)
         try repo.createDirectory(repoPath, recursive: true)
-        try repo.writeFileContents(filePath, bytes: ByteString(encodingAsUTF8: "// swift-tools-version:\(ToolsVersion.currentToolsVersion)\n"))
+        try repo.writeFileContents(filePath, bytes: ByteString(encodingAsUTF8: "// swift-tools-version:\(ToolsVersion.current)\n"))
         try repo.commit()
         try repo.tag(name: "v1.0.0")
         try repo.tag(name: "v1.0.1")
@@ -318,7 +324,7 @@ class SourceControlPackageContainerTests: XCTestCase {
         let specifier = RepositorySpecifier(path: repoPath)
         let repo = InMemoryGitRepository(path: repoPath, fs: fs)
         try repo.createDirectory(repoPath, recursive: true)
-        try repo.writeFileContents(filePath, bytes: ByteString(encodingAsUTF8: "// swift-tools-version:\(ToolsVersion.currentToolsVersion)\n"))
+        try repo.writeFileContents(filePath, bytes: ByteString(encodingAsUTF8: "// swift-tools-version:\(ToolsVersion.current)\n"))
         try repo.commit()
         try repo.tag(name: "1.0.0-alpha.1")
         try repo.tag(name: "1.0.0-beta.1")
@@ -362,7 +368,7 @@ class SourceControlPackageContainerTests: XCTestCase {
         let specifier = RepositorySpecifier(path: repoPath)
         let repo = InMemoryGitRepository(path: repoPath, fs: fs)
         try repo.createDirectory(repoPath, recursive: true)
-        try repo.writeFileContents(filePath, bytes: ByteString(encodingAsUTF8: "// swift-tools-version:\(ToolsVersion.currentToolsVersion)\n"))
+        try repo.writeFileContents(filePath, bytes: ByteString(encodingAsUTF8: "// swift-tools-version:\(ToolsVersion.current)\n"))
         try repo.commit()
         try repo.tag(name: "v1.0.0")
         try repo.tag(name: "1.0.0")
@@ -589,7 +595,7 @@ class SourceControlPackageContainerTests: XCTestCase {
             catch let error as SourceControlPackageContainer.GetDependenciesError {
                 // We expect to get an error message that mentions main.
                 XCTAssertMatch(error.description, .and(.prefix("could not find a branch named ‘master’"), .suffix("(did you mean ‘main’?)")))
-                XCTAssertMatch(error.repository.description, .suffix("/SomePackage"))
+                XCTAssertMatch(error.repository.description, .suffix("SomePackage"))
                 XCTAssertMatch(error.reference, "master")
             }
 
@@ -598,7 +604,7 @@ class SourceControlPackageContainerTests: XCTestCase {
             catch let error as SourceControlPackageContainer.GetDependenciesError {
                 // We expect to get an error message about the specific commit.
                 XCTAssertMatch(error.description, .prefix("could not find the commit 535f4cb5b4a0872fa691473e82d7b27b9894df00"))
-                XCTAssertMatch(error.repository.description, .suffix("/SomePackage"))
+                XCTAssertMatch(error.repository.description, .suffix("SomePackage"))
                 XCTAssertMatch(error.reference, "535f4cb5b4a0872fa691473e82d7b27b9894df00")
             }
         }

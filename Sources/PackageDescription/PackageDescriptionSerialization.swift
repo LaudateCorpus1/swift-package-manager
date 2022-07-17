@@ -1,19 +1,21 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Foundation
 #if canImport(Glibc)
 @_implementationOnly import Glibc
-#elseif os(iOS) || os(macOS) || os(tvOS) || os(watchOS)
+#elseif canImport(Darwin)
 @_implementationOnly import Darwin.C
-#elseif os(Windows)
+#elseif canImport(ucrt) && canImport(WinSDK)
 @_implementationOnly import ucrt
 @_implementationOnly import struct WinSDK.HANDLE
 #endif
@@ -35,6 +37,15 @@ extension Package: Encodable {
         case cxxLanguageStandard
     }
 
+    /// Encodes this value into the given encoder.
+    ///
+    /// If the value fails to encode anything, `encoder` will encode an empty
+    /// keyed container in its place.
+    ///
+    /// This function throws an error if any values are invalid for the given
+    /// encoder's format.
+    ///
+    /// - Parameter encoder: The encoder to write data to.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(name, forKey: .name)
@@ -74,6 +85,12 @@ extension Package.Dependency.Requirement: Encodable {
         case localPackage
     }
 
+    /// Encodes this value into the given encoder.
+    ///
+    /// This function throws an error if any values are invalid for the given
+    /// encoder's format.
+    ///
+    /// - Parameter encoder: The encoder to write data to.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
@@ -204,8 +221,18 @@ extension SystemPackageProvider: Encodable {
         case brew
         case apt
         case yum
+        case nuget
     }
 
+    /// Encodes this value into the given encoder.
+    ///
+    /// If the value fails to encode anything, `encoder` will encode an empty
+    /// keyed container in its place.
+    ///
+    /// This function throws an error if any values are invalid for the given
+    /// encoder's format.
+    ///
+    /// - Parameter encoder: The encoder to write data to.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
@@ -217,6 +244,9 @@ extension SystemPackageProvider: Encodable {
             try container.encode(packages, forKey: .values)
         case .yumItem(let packages):
             try container.encode(Name.yum, forKey: .name)
+            try container.encode(packages, forKey: .values)
+        case .nugetItem(let packages):
+            try container.encode(Name.nuget, forKey: .name)
             try container.encode(packages, forKey: .values)
         }
     }
@@ -268,6 +298,7 @@ extension PluginCommandIntent: Encodable {
     }
 }
 
+/// `Encodable` conformance.
 extension PluginPermission: Encodable {
     private enum CodingKeys: CodingKey {
         case type, reason
@@ -277,6 +308,9 @@ extension PluginPermission: Encodable {
         case writeToPackageDirectory
     }
 
+    /// Encode the `PluginPermission` into the given encoder.
+    ///
+    /// - Parameter to: The encoder to write data to.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
@@ -302,6 +336,15 @@ extension Target.Dependency: Encodable {
         case byName = "byname"
     }
 
+    /// Encodes the `Target.Dependency` into the given encoder.
+    ///
+    /// If the value fails to encode anything, `encoder` will encode an empty
+    /// keyed container in its place.
+    ///
+    /// This function throws an error if any values are invalid for the given
+    /// encoder's format.
+    ///
+    /// - Parameter encoder: The encoder to write data to.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
@@ -345,6 +388,15 @@ extension Target: Encodable {
         case pluginUsages
     }
 
+    /// Encodes this value into the given encoder.
+    ///
+    /// If the value fails to encode anything, `encoder` will encode an empty
+    /// keyed container in its place.
+    ///
+    /// This function throws an error if any values are invalid for the given
+    /// encoder's format.
+    ///
+    /// - Parameter encoder: The encoder to write data to.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
@@ -405,6 +457,12 @@ extension Target.PluginUsage: Encodable {
 }
 
 extension SwiftVersion: Encodable {
+    /// Encodes this value into the given encoder.
+    ///
+    /// This function throws an error if any values are invalid for the given
+    /// encoder's format.
+    ///
+    /// - Parameter encoder: The encoder to write data to.
     public func encode(to encoder: Encoder) throws {
         let value: String
 
@@ -427,6 +485,12 @@ extension SwiftVersion: Encodable {
 }
 
 extension Version: Encodable {
+    /// Encodes this value into the given encoder.
+    ///
+    /// This function throws an error if any values are invalid for the given
+    /// encoder's format.
+    ///
+    /// - Parameter encoder: The encoder to write data to.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(description)

@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Dispatch
@@ -35,7 +37,7 @@ public final class InMemoryGitRepository {
     /// A struct representing a revision state. Minimally it contains a hash identifier for the revision
     /// and the file system state.
     fileprivate struct RevisionState {
-        /// The revision identifier hash. It should be unique amoung all the identifiers.
+        /// The revision identifier hash. It should be unique among all the identifiers.
         var hash: RevisionIdentifier
 
         /// The filesystem state contained in this revision.
@@ -65,7 +67,7 @@ public final class InMemoryGitRepository {
     /// The file system in which this repository should be installed.
     private let fs: InMemoryFileSystem
 
-    private let lock = Lock()
+    private let lock = NSLock()
 
     /// Create a new repository at the given path and filesystem.
     public init(path: AbsolutePath, fs: InMemoryFileSystem) {
@@ -141,7 +143,7 @@ public final class InMemoryGitRepository {
             throw InMemoryGitRepositoryError.unknownTag
         }
         // Point the head to the revision state of the tag.
-        // It should be impossible that a tag exisits which doesnot have a state.
+        // It should be impossible that a tag exists which does not have a state.
         try self.lock.withLock {
             guard let head = history[hash] else {
                 throw InternalError("unknown hash \(hash)")
@@ -479,5 +481,9 @@ public final class InMemoryGitRepositoryProvider: RepositoryProvider {
 
     public func isValidRefFormat(_ ref: String) -> Bool {
         return true
+    }
+
+    public func cancel(deadline: DispatchTime) throws {
+        // noop
     }
 }

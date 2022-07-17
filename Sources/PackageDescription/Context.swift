@@ -1,20 +1,24 @@
-/*
- This source file is part of the Swift.org open source project
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2018 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
- Copyright (c) 2018 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
-
-/// The context a Swift package is running in. This encapsulates states that are known at build-time.
-/// For example where in the file system the current package resides.
+/// The context information for a Swift package.
+///
+/// The context encapsulates states that are known when Swift Package Manager interprets the package manifest,
+/// for example the location in the file system where the current package resides.
 @available(_PackageDescription, introduced: 5.6)
 public struct Context {
     private static let model = try! ContextModel.decode()
 
-    /// The directory containing Package.swift.
+    /// The directory that contains `Package.swift`.
     public static var packageDirectory : String {
         model.packageDirectory
     }

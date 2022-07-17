@@ -1,24 +1,24 @@
-// WorkspaceTests/ToolsVersionSpecificationRewriterTests.swift
+//===----------------------------------------------------------------------===//
 //
-// This source file is part of the Swift.org open source project
+// This source file is part of the Swift open source project
 //
-// Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
+// Copyright (c) 2014-2020 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See https://swift.org/LICENSE.txt for license information
-// See https://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
 //
-// -----------------------------------------------------------------------------
+//===----------------------------------------------------------------------===//
+
 ///
 /// This file tests `Workspace.rewriteToolsVersionSpecification(toDefaultManifestIn:specifying:fileSystem:)`.
 ///
-// -----------------------------------------------------------------------------
 
 import XCTest
 
 import TSCBasic
 import PackageModel
-import Workspace
+@testable import Workspace
 
 /// Test cases for `rewriteToolsVersionSpecification(toDefaultManifestIn:specifying:fileSystem:)`
 class ToolsVersionSpecificationRewriterTests: XCTestCase {
@@ -118,14 +118,14 @@ class ToolsVersionSpecificationRewriterTests: XCTestCase {
         
         // Test `ManifestAccessError.Kind.isADirectory`
         XCTAssertThrowsError(
-            try rewriteToolsVersionSpecification(
-                toDefaultManifestIn: manifestFilePath.parentDirectory.parentDirectory, // /pkg/
-                specifying: toolsVersion,
+            try ToolsVersionSpecificationWriter.rewriteSpecification(
+                manifestDirectory: manifestFilePath.parentDirectory.parentDirectory, // /pkg/
+                toolsVersion: toolsVersion,
                 fileSystem: inMemoryFileSystem
             ),
             "'/pkg/Package.swift' is a directory, and an error should've been thrown"
         ) { error in
-            guard let error = error as? ManifestAccessError else {
+            guard let error = error as? ToolsVersionSpecificationWriter.ManifestAccessError else {
                 XCTFail("a ManifestAccessError should've been thrown")
                 return
             }
@@ -141,14 +141,14 @@ class ToolsVersionSpecificationRewriterTests: XCTestCase {
         
         // Test `ManifestAccessError.Kind.noSuchFileOrDirectory`
         XCTAssertThrowsError(
-            try rewriteToolsVersionSpecification(
-                toDefaultManifestIn: manifestFilePath.parentDirectory, // /pkg/Package.swift/
-                specifying: toolsVersion,
+            try ToolsVersionSpecificationWriter.rewriteSpecification(
+                manifestDirectory: manifestFilePath.parentDirectory, // /pkg/Package.swift/
+                toolsVersion: toolsVersion,
                 fileSystem: inMemoryFileSystem
             ),
             "'/pkg/Package.swift' is a directory, and an error should've been thrown"
         ) { error in
-            guard let error = error as? ManifestAccessError else {
+            guard let error = error as? ToolsVersionSpecificationWriter.ManifestAccessError else {
                 XCTFail("a ManifestAccessError should've been thrown")
                 return
             }
@@ -194,9 +194,9 @@ class ToolsVersionSpecificationRewriterTests: XCTestCase {
             try inMemoryFileSystem.createDirectory(manifestFilePath.parentDirectory, recursive: true)
             try inMemoryFileSystem.writeFileContents(manifestFilePath, bytes: stream.bytes)
 
-            try rewriteToolsVersionSpecification(
-                toDefaultManifestIn: manifestFilePath.parentDirectory,
-                specifying: version,
+            try ToolsVersionSpecificationWriter.rewriteSpecification(
+                manifestDirectory: manifestFilePath.parentDirectory,
+                toolsVersion: version,
                 fileSystem: inMemoryFileSystem
             )
 

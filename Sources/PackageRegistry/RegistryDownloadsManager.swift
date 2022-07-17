@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2022 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Dispatch
@@ -15,7 +17,7 @@ import PackageModel
 import TSCBasic
 import PackageLoading
 
-public class RegistryDownloadsManager {
+public class RegistryDownloadsManager: Cancellable {
     public typealias Delegate = RegistryDownloadsManagerDelegate
 
     private let fileSystem: FileSystem
@@ -55,7 +57,7 @@ public class RegistryDownloadsManager {
         // wrap the callback in the requested queue
         let completion = { result in callbackQueue.async { completion(result) } }
         
-        let packageRelativePath: RelativePath!
+        let packageRelativePath: RelativePath
         let packagePath: AbsolutePath
 
         do {
@@ -131,7 +133,12 @@ public class RegistryDownloadsManager {
         }
     }
 
-    func downloadAndPopulateCache(
+    /// Cancel any outstanding requests
+    public func cancel(deadline: DispatchTime) throws {
+        try self.registryClient.cancel(deadline: deadline)
+    }
+
+    private func downloadAndPopulateCache(
         package: PackageIdentity,
         version: Version,
         packagePath: AbsolutePath,

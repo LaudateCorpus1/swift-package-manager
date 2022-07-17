@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import struct Foundation.URL
@@ -82,7 +84,7 @@ final class FilePackageFingerprintStorageTests: XCTestCase {
             }
         }
 
-        // No fingerprints found for the packagge
+        // No fingerprints found for the package
         let otherPackage = PackageIdentity.plain("other.LinkedList")
         XCTAssertThrowsError(try storage.get(package: otherPackage, version: Version("1.0.0"))) { error in
             guard case PackageFingerprintStorageError.notFound = error else {

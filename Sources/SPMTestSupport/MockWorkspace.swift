@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import PackageGraph
@@ -25,13 +27,12 @@ public final class MockWorkspace {
     let fileSystem: InMemoryFileSystem
     let roots: [MockPackage]
     let packages: [MockPackage]
-    let toolsVersion: ToolsVersion
+    let customToolsVersion: ToolsVersion?
     let fingerprints: MockPackageFingerprintStorage
     let mirrors: DependencyMirrors
-    public var  httpClient: HTTPClient
     public var registryClient: RegistryClient
     let registry: MockRegistry
-    public var archiver: MockArchiver
+    let customBinaryArtifactsManager: Workspace.CustomBinaryArtifactsManager
     public var checksumAlgorithm: MockHashAlgorithm
     public private(set) var manifestLoader: MockManifestLoader
     public let repositoryProvider: InMemoryGitRepositoryProvider
@@ -46,12 +47,11 @@ public final class MockWorkspace {
         fileSystem: InMemoryFileSystem,
         roots: [MockPackage],
         packages: [MockPackage] = [],
-        toolsVersion: ToolsVersion = ToolsVersion.currentToolsVersion,
+        toolsVersion customToolsVersion: ToolsVersion? = .none,
         fingerprints customFingerprints: MockPackageFingerprintStorage? = .none,
         mirrors customMirrors: DependencyMirrors? = nil,
-        httpClient customHttpClient: HTTPClient? = .none,
         registryClient customRegistryClient: RegistryClient? = .none,
-        binaryArchiver customBinaryArchiver: MockArchiver? = .none,
+        binaryArtifactsManager customBinaryArtifactsManager: Workspace.CustomBinaryArtifactsManager? = .none,
         checksumAlgorithm customChecksumAlgorithm: MockHashAlgorithm? = .none,
         customPackageContainerProvider: MockPackageContainerProvider? = .none,
         skipDependenciesUpdates: Bool = false,
@@ -66,8 +66,8 @@ public final class MockWorkspace {
         self.identityResolver = DefaultIdentityResolver(locationMapper: self.mirrors.effectiveURL(for:))
         self.manifestLoader = MockManifestLoader(manifests: [:])
         self.customPackageContainerProvider = customPackageContainerProvider
-        self.checksumAlgorithm = customChecksumAlgorithm ?? MockHashAlgorithm()
         self.repositoryProvider = InMemoryGitRepositoryProvider()
+        self.checksumAlgorithm = customChecksumAlgorithm ?? MockHashAlgorithm()
         self.registry = MockRegistry(
             filesystem: self.fileSystem,
             identityResolver: self.identityResolver,
@@ -75,11 +75,13 @@ public final class MockWorkspace {
             fingerprintStorage: self.fingerprints
         )
         self.registryClient = customRegistryClient ?? self.registry.registryClient
-        self.toolsVersion = toolsVersion
+        self.customToolsVersion = customToolsVersion
         self.skipDependenciesUpdates = skipDependenciesUpdates
         self.sourceControlToRegistryDependencyTransformation = sourceControlToRegistryDependencyTransformation
-        self.httpClient = customHttpClient ?? HTTPClient.mock(fileSystem: fileSystem)
-        self.archiver = customBinaryArchiver ?? MockArchiver()
+        self.customBinaryArtifactsManager = customBinaryArtifactsManager ?? .init(
+            httpClient: HTTPClient.mock(fileSystem: fileSystem),
+            archiver: MockArchiver()
+        )
         try self.create()
     }
 
@@ -96,11 +98,11 @@ public final class MockWorkspace {
     }
 
     public func pathToRoot(withName name: String) -> AbsolutePath {
-        return self.rootsDir.appending(RelativePath(name))
+        return AbsolutePath(name, relativeTo: self.rootsDir)
     }
 
     public func pathToPackage(withName name: String) -> AbsolutePath {
-        return self.packagesDir.appending(RelativePath(name))
+        return AbsolutePath(name, relativeTo: self.packagesDir)
     }
 
     private func create() throws {
@@ -163,12 +165,11 @@ public final class MockWorkspace {
                 registryAlternativeURLs = alternativeURLs
             }
 
-            let toolsVersion = package.toolsVersion ?? .currentToolsVersion
-
             // Create targets on disk.
+            let packageToolsVersion = package.toolsVersion ?? .current
             if let specifier = sourceControlSpecifier {
                 let repository = self.repositoryProvider.specifierMap[specifier] ?? .init(path: packagePath, fs: self.fileSystem)
-                try writePackageContent(fileSystem: repository, root: .root, toolsVersion: toolsVersion)
+                try writePackageContent(fileSystem: repository, root: .root, toolsVersion: packageToolsVersion)
                 
                 let versions = packageVersions.compactMap{ $0 }
                 if versions.isEmpty {
@@ -183,7 +184,7 @@ public final class MockWorkspace {
                 self.repositoryProvider.add(specifier: specifier, repository: repository)
             } else if let identity = registryIdentity {
                 let source = InMemoryRegistryPackageSource(fileSystem: self.fileSystem, path: packagePath, writeContent: false)
-                try writePackageContent(fileSystem: source.fileSystem, root: source.path, toolsVersion: toolsVersion)
+                try writePackageContent(fileSystem: source.fileSystem, root: source.path, toolsVersion: packageToolsVersion)
                 self.registry.addPackage(
                     identity: identity,
                     versions: packageVersions.compactMap{ $0 },
@@ -204,7 +205,7 @@ public final class MockWorkspace {
                     packageLocation: packageLocation,
                     platforms: package.platforms,
                     version: v,
-                    toolsVersion: toolsVersion,
+                    toolsVersion: packageToolsVersion,
                     dependencies: package.dependencies.map { try $0.convert(baseURL: packagesDir, identityResolver: self.identityResolver) },
                     products: package.products.map { try ProductDescription(name: $0.name, type: .library(.automatic), targets: $0.targets) },
                     targets: try package.targets.map { try $0.convert() }
@@ -220,7 +221,11 @@ public final class MockWorkspace {
                 }
                 let manifestPath = root.appending(component: Manifest.filename)
                 try fileSystem.writeFileContents(manifestPath, bytes: "")
-                try rewriteToolsVersionSpecification(toDefaultManifestIn: root, specifying: toolsVersion, fileSystem: fileSystem)
+                try ToolsVersionSpecificationWriter.rewriteSpecification(
+                    manifestDirectory: root,
+                    toolsVersion: toolsVersion,
+                    fileSystem: fileSystem
+                )
             }
         }
 
@@ -245,7 +250,7 @@ public final class MockWorkspace {
         let workspace = try Workspace._init(
             fileSystem: self.fileSystem,
             location: .init(
-                workingDirectory: self.sandbox.appending(component: ".build"),
+                scratchDirectory: self.sandbox.appending(component: ".build"),
                 editsDirectory: self.sandbox.appending(component: "edits"),
                 resolvedVersionsFile: self.sandbox.appending(component: "Package.resolved"),
                 localConfigurationDirectory: Workspace.DefaultLocations.configurationDirectory(forRootPackage: self.sandbox),
@@ -263,14 +268,13 @@ public final class MockWorkspace {
             ),
             customFingerprints: self.fingerprints,
             customMirrors: self.mirrors,
-            customToolsVersion: self.toolsVersion,
+            customToolsVersion: self.customToolsVersion,
             customManifestLoader: self.manifestLoader,
             customPackageContainerProvider: self.customPackageContainerProvider,
             customRepositoryProvider: self.repositoryProvider,
             customRegistryClient: self.registryClient,
+            customBinaryArtifactsManager: self.customBinaryArtifactsManager,
             customIdentityResolver: self.identityResolver,
-            customHTTPClient: self.httpClient,
-            customArchiver: self.archiver,
             customChecksumAlgorithm: self.checksumAlgorithm,
             delegate: self.delegate
         )
@@ -290,7 +294,7 @@ public final class MockWorkspace {
     }
 
     public func rootPaths(for packages: [String]) -> [AbsolutePath] {
-        return packages.map { rootsDir.appending(RelativePath($0)) }
+        return packages.map { AbsolutePath($0, relativeTo: rootsDir) }
     }
 
     public func checkEdit(
@@ -492,7 +496,7 @@ public final class MockWorkspace {
 
     public func set(
         pins: [PackageReference: CheckoutState] = [:],
-        managedDependencies: [Workspace.ManagedDependency] = [],
+        managedDependencies: [AbsolutePath: Workspace.ManagedDependency] = [:],
         managedArtifacts: [Workspace.ManagedArtifact] = []
     ) throws {
         let pins = pins.mapValues { checkoutState -> PinsStore.PinState in
@@ -510,7 +514,7 @@ public final class MockWorkspace {
 
     public func set(
         pins: [PackageReference: PinsStore.PinState],
-        managedDependencies: [Workspace.ManagedDependency] = [],
+        managedDependencies: [AbsolutePath: Workspace.ManagedDependency] = [:],
         managedArtifacts: [Workspace.ManagedArtifact] = []
     ) throws {
         let workspace = try self.getOrCreateWorkspace()
@@ -521,13 +525,20 @@ public final class MockWorkspace {
         }
 
         for dependency in managedDependencies {
-            try self.fileSystem.createDirectory(workspace.path(to: dependency), recursive: true)
-            workspace.state.dependencies.add(dependency)
+            // copy the package content to expected managed path
+            let managedPath = workspace.path(to: dependency.value)
+            if managedPath != dependency.key, self.fileSystem.exists(dependency.key) {
+                try self.fileSystem.createDirectory(managedPath.parentDirectory, recursive: true)
+                try self.fileSystem.copy(from: dependency.key, to: managedPath)
+            } else {
+                try self.fileSystem.createDirectory(managedPath, recursive: true)
+            }
+            workspace.state.dependencies.add(dependency.value)
         }
 
         for artifact in managedArtifacts {
+            // create an empty directory representing the artifact
             try self.fileSystem.createDirectory(artifact.path, recursive: true)
-
             workspace.state.artifacts.add(artifact)
         }
 
@@ -766,7 +777,7 @@ public final class MockWorkspace {
 }
 
 public final class MockWorkspaceDelegate: WorkspaceDelegate {
-    private let lock = Lock()
+    private let lock = NSLock()
     private var _events = [String]()
     private var _manifest: Manifest?
     private var _manifestLoadingDiagnostics: [Basics.Diagnostic]?

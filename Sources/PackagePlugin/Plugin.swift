@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2021-2022 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2021-2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 @_implementationOnly import Foundation
 #if os(Windows)
@@ -82,8 +84,16 @@ extension Plugin {
         }
         
         // Turn off full buffering so printed text appears as soon as possible.
+        // Windows is much less forgiving than other platforms.  If line
+        // buffering is enabled, we must provide a buffer and the size of the
+        // buffer.  As a result, on Windows, we completely disable all
+        // buffering, which means that partial writes are possible.
+#if os(Windows)
+        setvbuf(stdout, nil, _IONBF, 0)
+#else
         setvbuf(stdout, nil, _IOLBF, 0)
-        
+#endif
+
         // Open a message channel for communicating with the plugin host.
         pluginHostConnection = PluginHostConnection(
             inputStream: FileHandle(fileDescriptor: inputFD),

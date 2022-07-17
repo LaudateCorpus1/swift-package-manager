@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import OrderedCollections
@@ -55,7 +57,7 @@ public func fixture(
 
             // Construct the expected path of the fixture.
             // FIXME: This seems quite hacky; we should provide some control over where fixtures are found.
-            let fixtureDir = AbsolutePath(#file).appending(RelativePath("../../../Fixtures")).appending(fixtureSubpath)
+            let fixtureDir = AbsolutePath("../../../Fixtures", relativeTo: AbsolutePath(#file)).appending(fixtureSubpath)
 
             // Check that the fixture is really there.
             guard localFileSystem.isDirectory(fixtureDir) else {
@@ -118,7 +120,7 @@ public func initGitRepo(
     do {
         if addFile {
             let file = dir.appending(component: "file.swift")
-            try systemQuietly(["touch", file.pathString])
+            try localFileSystem.writeFileContents(file, bytes: "")
         }
 
         try systemQuietly([Git.tool, "-C", dir.pathString, "init"])
@@ -219,18 +221,19 @@ private func swiftArgs(
 
 public func loadPackageGraph(
     identityResolver: IdentityResolver = DefaultIdentityResolver(),
-    fs: FileSystem,
+    fileSystem: FileSystem,
     manifests: [Manifest],
-    binaryArtifacts: [BinaryArtifact] = [],
-    explicitProduct: String? = nil,
+    binaryArtifacts: [PackageIdentity: [String: BinaryArtifact]] = [:],
+    explicitProduct: String? = .none,
     shouldCreateMultipleTestProducts: Bool = false,
     createREPLProduct: Bool = false,
     useXCBuildFileRules: Bool = false,
+    customXCTestMinimumDeploymentTargets: [PackageModel.Platform: PlatformVersion]? = .none,
     observabilityScope: ObservabilityScope
 ) throws -> PackageGraph {
     let rootManifests = manifests.filter { $0.packageKind.isRoot }.spm_createDictionary{ ($0.path, $0) }
     let externalManifests = try manifests.filter { !$0.packageKind.isRoot }.reduce(into: OrderedCollections.OrderedDictionary<PackageIdentity, (manifest: Manifest, fs: FileSystem)>()) { partial, item in
-        partial[try identityResolver.resolveIdentity(for: item.packageKind)] = (item, fs)
+        partial[try identityResolver.resolveIdentity(for: item.packageKind)] = (item, fileSystem)
     }
 
     let packages = Array(rootManifests.keys)
@@ -245,7 +248,8 @@ public func loadPackageGraph(
         binaryArtifacts: binaryArtifacts,
         shouldCreateMultipleTestProducts: shouldCreateMultipleTestProducts,
         createREPLProduct: createREPLProduct,
-        fileSystem: fs,
+        customXCTestMinimumDeploymentTargets: customXCTestMinimumDeploymentTargets,
+        fileSystem: fileSystem,
         observabilityScope: observabilityScope
     )
 }

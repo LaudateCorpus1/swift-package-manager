@@ -1,12 +1,14 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2020 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Foundation
@@ -242,7 +244,7 @@ public enum PIF {
         }
     }
 
-    /// Abstract base class for all items in the group hierarhcy.
+    /// Abstract base class for all items in the group hierarchy.
     public class Reference: TypedObject {
         /// Determines the base path for a reference's relative path.
         public enum SourceTree: String, Codable {
@@ -963,6 +965,7 @@ public enum PIF {
             case SPECIALIZATION_SDK_OPTIONS
             case SUPPORTED_PLATFORMS
             case SWIFT_ACTIVE_COMPILATION_CONDITIONS
+            case SWIFT_MODULE_ALIASES
         }
 
         public enum Platform: String, CaseIterable, Codable {
@@ -1103,7 +1106,7 @@ public enum PIF {
     }
 }
 
-/// Repesents a filetype recognized by the Xcode build system.
+/// Represents a filetype recognized by the Xcode build system.
 public struct XCBuildFileType: CaseIterable {
     public static let xcdatamodeld: XCBuildFileType = XCBuildFileType(
         fileType: "xcdatamodeld",

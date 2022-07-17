@@ -1,15 +1,18 @@
-/*
- This source file is part of the Swift.org open source project
-
- Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift open source project
+//
+// Copyright (c) 2014-2021 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import Dispatch
+import class Foundation.NSLock
 import PackageFingerprint
 import PackageGraph
 import PackageLoading
@@ -54,7 +57,6 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
     private let repository: Repository
     private let identityResolver: IdentityResolver
     private let manifestLoader: ManifestLoaderProtocol
-    private let toolsVersionLoader: ToolsVersionLoaderProtocol
     private let currentToolsVersion: ToolsVersion
     private let fingerprintStorage: PackageFingerprintStorage?
     private let fingerprintCheckingMode: FingerprintCheckingMode
@@ -62,7 +64,7 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
 
     /// The cached dependency information.
     private var dependenciesCache = [String: [ProductFilter: (Manifest, [Constraint])]] ()
-    private var dependenciesCacheLock = Lock()
+    private var dependenciesCacheLock = NSLock()
 
     private var knownVersionsCache = ThreadSafeBox<[Version: String]>()
     private var manifestsCache = ThreadSafeKeyValueStore<String, Manifest>()
@@ -78,7 +80,6 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
         repositorySpecifier: RepositorySpecifier,
         repository: Repository,
         manifestLoader: ManifestLoaderProtocol,
-        toolsVersionLoader: ToolsVersionLoaderProtocol,
         currentToolsVersion: ToolsVersion,
         fingerprintStorage: PackageFingerprintStorage?,
         fingerprintCheckingMode: FingerprintCheckingMode,
@@ -89,7 +90,6 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
         self.repositorySpecifier = repositorySpecifier
         self.repository = repository
         self.manifestLoader = manifestLoader
-        self.toolsVersionLoader = toolsVersionLoader
         self.currentToolsVersion = currentToolsVersion
         self.fingerprintStorage = fingerprintStorage
         self.fingerprintCheckingMode = fingerprintCheckingMode
@@ -99,7 +99,7 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
     // Compute the map of known versions.
     private func knownVersions() throws -> [Version: String] {
         try self.knownVersionsCache.memoize() {
-            let knownVersionsWithDuplicates = Git.convertTagsToVersionMap(try repository.getTags())
+            let knownVersionsWithDuplicates = Git.convertTagsToVersionMap(tags: try repository.getTags(), toolsVersion: self.currentToolsVersion)
 
             return knownVersionsWithDuplicates.mapValues({ tags -> String in
                 if tags.count > 1 {
@@ -229,7 +229,9 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
                 throw StringError("unknown tag \(version)")
             }
             let fileSystem = try repository.openFileView(tag: tag)
-            return try toolsVersionLoader.load(at: .root, fileSystem: fileSystem)
+            // find the manifest path and parse it's tools-version
+            let manifestPath = try ManifestLoader.findManifest(packagePath: .root, fileSystem: fileSystem, currentToolsVersion: self.currentToolsVersion)
+            return try ToolsVersionParser.parse(manifestPath: manifestPath, fileSystem: fileSystem)
         }
     }
 
@@ -375,40 +377,35 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
     private func loadManifest(tag: String, version: Version?) throws -> Manifest {
         try self.manifestsCache.memoize(tag) {
             let fileSystem = try repository.openFileView(tag: tag)
-            return try self.loadManifest(fileSystem: fileSystem, version: version, packageVersion: tag)
+            return try self.loadManifest(fileSystem: fileSystem, version: version, revision: tag)
         }
     }
 
     private func loadManifest(at revision: Revision, version: Version?) throws -> Manifest {
         try self.manifestsCache.memoize(revision.identifier) {
             let fileSystem = try self.repository.openFileView(revision: revision)
-            return try self.loadManifest(fileSystem: fileSystem, version: version, packageVersion: revision.identifier)
+            return try self.loadManifest(fileSystem: fileSystem, version: version, revision: revision.identifier)
         }
     }
 
-    private func loadManifest(fileSystem: FileSystem, version: Version?, packageVersion: String) throws -> Manifest {
-        // Load the tools version.
-        let toolsVersion = try self.toolsVersionLoader.load(at: .root, fileSystem: fileSystem)
-
-        // Validate the tools version.
-        try toolsVersion.validateToolsVersion(
-            self.currentToolsVersion, packageIdentity: self.package.identity, packageVersion: packageVersion)
-
+    private func loadManifest(fileSystem: FileSystem, version: Version?, revision: String) throws -> Manifest {
         // Load the manifest.
         // FIXME: this should not block
         return try temp_await {
-            self.manifestLoader.load(at: AbsolutePath.root,
-                                     packageIdentity: self.package.identity,
-                                     packageKind: self.package.kind,
-                                     packageLocation: self.package.locationString,
-                                     version: version,
-                                     revision: nil,
-                                     toolsVersion: toolsVersion,
-                                     identityResolver: self.identityResolver,
-                                     fileSystem: fileSystem,
-                                     observabilityScope: self.observabilityScope,
-                                     on: .sharedConcurrent,
-                                     completion: $0)
+            self.manifestLoader.load(
+                packagePath: .root,
+                packageIdentity: self.package.identity,
+                packageKind: self.package.kind,
+                packageLocation: self.package.locationString,
+                packageVersion: (version: version, revision: revision),
+                currentToolsVersion: self.currentToolsVersion,
+                identityResolver: self.identityResolver,
+                fileSystem: fileSystem,
+                observabilityScope: self.observabilityScope,
+                delegateQueue: .sharedConcurrent,
+                callbackQueue: .sharedConcurrent,
+                completion: $0
+            )
         }
     }
 
@@ -421,14 +418,14 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
     }
 }
 
-fileprivate extension Git {
-    static func convertTagsToVersionMap(_ tags: [String]) -> [Version: [String]] {
+extension Git {
+    fileprivate static func convertTagsToVersionMap(tags: [String], toolsVersion: ToolsVersion) -> [Version: [String]] {
         // First, check if we need to restrict the tag set to version-specific tags.
         var knownVersions: [Version: [String]] = [:]
         var versionSpecificKnownVersions: [Version: [String]] = [:]
 
         for tag in tags {
-            for versionSpecificKey in SwiftVersion.currentVersion.versionSpecificKeys {
+            for versionSpecificKey in toolsVersion.versionSpecificKeys {
                 if tag.hasSuffix(versionSpecificKey) {
                     let trimmedTag = String(tag.dropLast(versionSpecificKey.count))
                     if let version = Version(tag: trimmedTag) {
